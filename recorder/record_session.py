@@ -61,14 +61,25 @@ def upload_worker(
         clip_dir = staging / clip_name
         clip_dir.mkdir(parents=True, exist_ok=True)
         try:
-            for url in file_urls:
+            for url in file_urls or []:
                 filename = url.rsplit("/", 1)[-1]
                 print(f"[{clip_name}] downloading {filename} ...")
                 camera.download(url, clip_dir / filename)
+            if not any(clip_dir.iterdir()):
+                print(f"[{clip_name}] no files to upload — skipping.")
+                continue
             target = f"{remote}:{remote_path}/{clip_name}"
             action = "copy" if keep_local else "move"
             print(f"[{clip_name}] uploading to {target} ...")
-            subprocess.run(["rclone", action, str(clip_dir), target], check=True)
+            # start_new_session detaches rclone from the terminal's process group, so a
+            # Ctrl+C in the session does not kill an upload that is already in progress.
+            subprocess.run(
+                ["rclone", action, str(clip_dir), target,
+                 "--contimeout", "30s", "--timeout", "300s",
+                 "--retries", "3", "--low-level-retries", "10"],
+                check=True,
+                start_new_session=True,
+            )
             print(f"[{clip_name}] uploaded.")
             if not keep_local:
                 try:
@@ -124,6 +135,10 @@ def main() -> int:
     )
     worker.start()
 
+    for leftover in sorted(p for p in staging.glob("clip_*") if p.is_dir() and any(p.iterdir())):
+        print(f"Found leftover clip {leftover.name} from a previous run — queuing for upload.")
+        jobs.put((leftover.name, []))
+
     print("\nReady. Press the mouse button to START, press again to STOP. Ctrl+C to quit.\n")
 
     recording = False
@@ -163,7 +178,7 @@ def main() -> int:
                 print(f"(could not stop the camera cleanly: {exc})")
     finally:
         jobs.put(None)
-        print("Finishing pending downloads/uploads (Ctrl+C again to abandon; local files are kept either way)...")
+        print("Finishing the current upload and any queued clips — please wait. (Ctrl+C again to abandon; local files are always kept.)")
         try:
             worker.join()
         except KeyboardInterrupt:
