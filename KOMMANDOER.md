@@ -1,47 +1,63 @@
 # Kommandoer
 
-Kort oversikt over hva du kan kjøre. **TeamViewer-delen krever et assignment-token
-du ikke har ennå** — alt annet kan testes uten.
-
-## På PC-en (Windows) — bare sjekk at scriptene er gyldige
+Kort jukselapp — forklaring i parentes. **Alle Pi-kommandoene kjøres på Raspberry Pi-en, ikke
+på Windows.** Kjør dem fra repo-mappa:
 
 ```bash
-bash -n deploy/bootstrap.sh deploy/self-update.sh deploy/run-app.sh
-```
-Sjekker syntaks. Gjør ingen endringer. (Selve oppsettet kan kun kjøres på Pi-en.)
-
-## På Raspberry Pi-en  (KUN her — IKKE på Windows)
-
-> Disse kommandoene bruker `sudo`, `apt`, `systemctl` og `teamviewer`, som bare finnes
-> på Raspberry Pi OS / Linux. Kjører du dem på Windows får du «command not found».
-
-Start i repo-mappa:
-```bash
-git clone https://github.com/davgei/360-kamera-gps-logger.git
-cd 360-kamera-gps-logger
+cd ~/360-kamera-gps-logger
 ```
 
-**Oppsett uten token** (fungerer nå — hopper bare over TeamViewer-tilknytning):
-```bash
-sudo deploy/bootstrap.sh
-```
-Installerer git, Python (pip+venv) og TeamViewer Host, og slår på de to boot-tjenestene.
-
-**Kjør boot-jobben manuelt** (uten å reboote):
-```bash
-sudo systemctl start 360logger-boot.service
-journalctl -u 360logger-boot.service -b
-```
-Puller siste kode og sørger for at TeamViewer-daemonen kjører.
-
-**Se app-tjenesten** (sier "no logger configured" til du fyller inn `APP_CMD` i `deploy/app.env`):
-```bash
-journalctl -u 360logger-app.service -b
-```
-
-## Når du får tokenet
+## Engangs-oppsett på Pi-en (gjør én gang)
 
 ```bash
-sudo deploy/bootstrap.sh <TOKEN>   # knytter Pi-en til TeamViewer-kontoen
-teamviewer info                    # viser TeamViewer-ID + tilknytningsstatus
+# Avhengigheter: python3-evdev (les musetasten), rclone (last opp til Google Drive)
+sudo apt-get install -y python3-evdev rclone
+
+# La brukeren din lese musetasten uten sudo — LOGG UT OG INN igjen etterpå
+sudo usermod -aG input prototype1-360-kamera-gps
+
+# Koble rclone til Google Drive (veiviser: navn = gdrive, velg Google Drive, logg inn i nettleser)
+rclone config
+
+# Test at Drive-tilkoblingen virker (lister mappene i Google Drive)
+rclone lsd gdrive:
 ```
+
+## Filme — det vanlige
+
+```bash
+git pull                              # hent siste kode fra GitHub
+python3 -m recorder.record_session    # muse-trykk = start/stopp opptak, Ctrl+C = avslutt
+```
+
+Hvert klipp lastes opp til `gdrive:360-footage/clip_<tidspunkt>/` (begge `.mp4`-filene samlet).
+Kameraets WiFi kobles til automatisk. Hvis ikke:
+
+```bash
+python3 recorder/connect_camera_wifi.py   # spør om kamera-passordet og kobler til
+```
+
+## Test / feilsøk — én del om gangen
+
+```bash
+python3 recorder/probe_camera.py      # svarer kameraet? (skriver ut modell + batteri)
+python3 recorder/button_toggle.py     # toggler musetasten? (skriver START/STOP)
+python3 recorder/record_clip.py       # ta opp ett 5-sekunders testklipp
+rclone lsd gdrive:                    # virker Google Drive-tilkoblingen?
+```
+
+Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)
+
+```bash
+sudo raspi-config nonint do_wifi_country NO   # lås opp 5 GHz på Pi-en, prøv så igjen
+```
+
+## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
+
+```bash
+sudo bash deploy/bootstrap.sh                 # engangs: installerer + slår på boot-tjenestene
+journalctl -u 360logger-boot.service -b       # se loggen for boot-oppdateringen
+```
+
+> Merk: kjør opptak og `rclone` som **din egen bruker (uten `sudo`)**. Med `sudo` leter rclone
+> etter root sin konfig og finner ikke Google Drive-en din.
