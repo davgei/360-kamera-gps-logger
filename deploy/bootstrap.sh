@@ -8,8 +8,10 @@ set -euo pipefail
 #   sudo deploy/bootstrap.sh <TEAMVIEWER_ASSIGNMENT_TOKEN>
 #
 # It installs git + TeamViewer Host, assigns the device to your TeamViewer
-# account, and installs a boot service. After this, every boot pulls the latest
-# code and keeps TeamViewer online — no further manual steps.
+# account, and installs two boot services:
+#   360logger-boot.service  — pulls the latest code + keeps TeamViewer online
+#   360logger-app.service   — runs the logger app (see deploy/app.env)
+# After this, the Pi sets itself up on every boot — no further manual steps.
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo $0 <teamviewer-token>" >&2
@@ -22,6 +24,7 @@ REPO_USER="$(stat -c '%U' "$REPO_DIR")"
 TOKEN_FILE="$DEPLOY_DIR/teamviewer.token"
 
 # TeamViewer token resolution: argument > env var > token file.
+# The token is never stored in the repo (teamviewer.token is git-ignored).
 TOKEN="${1:-${TEAMVIEWER_ASSIGNMENT_TOKEN:-}}"
 if [[ -z "$TOKEN" && -f "$TOKEN_FILE" ]]; then
   TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
@@ -71,15 +74,20 @@ else
   log "(or place it in deploy/teamviewer.token)"
 fi
 
-log "Installing boot service"
-UNIT="/etc/systemd/system/360logger-boot.service"
-sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
-  "$DEPLOY_DIR/systemd/360logger-boot.service" > "$UNIT"
+log "Installing systemd services"
+for unit in 360logger-boot 360logger-app; do
+  sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
+    "$DEPLOY_DIR/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
+done
 
 chmod +x "$DEPLOY_DIR"/*.sh
 systemctl daemon-reload
-systemctl enable 360logger-boot.service
+systemctl enable 360logger-boot.service 360logger-app.service
 
-log "Done. Self-update + TeamViewer now run on every boot."
-log "Run it now without rebooting:  sudo systemctl start 360logger-boot.service"
-log "Check logs:                    journalctl -u 360logger-boot.service -b"
+log "Done. On every boot the Pi now pulls the latest code, keeps TeamViewer"
+log "online, and (re)starts the logger app from deploy/app.env."
+log "Run it now without rebooting:"
+log "  sudo systemctl start 360logger-boot.service 360logger-app.service"
+log "Check logs:"
+log "  journalctl -u 360logger-boot.service -b"
+log "  journalctl -u 360logger-app.service  -b"

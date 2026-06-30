@@ -1,0 +1,16 @@
+[Unit]
+Description=360-kamera-gps-logger application
+After=360logger-boot.service network-online.target
+Wants=360logger-boot.service
+
+[Service]
+Type=simple
+User=__REPO_USER__
+WorkingDirectory=__REPO_DIR__
+Environment=REPO_DIR=__REPO_DIR__
+ExecStart=__REPO_DIR__/deploy/run-app.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
