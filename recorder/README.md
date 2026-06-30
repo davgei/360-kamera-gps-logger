@@ -14,9 +14,22 @@ et **USB-knappetrykk** (mus/fotbryter), og senere koblet sammen med GPS-logging 
 - Pi-en må ha **ethernet (internett) + WiFi (kamera-AP) samtidig**. Du joiner kameraets WiFi
   på `wlan0`, og lar standardruta ligge på `eth0`.
 
+## Steg 1 — koble Pi-en til kameraets WiFi
+
+```bash
+python3 recorder/connect_camera_wifi.py
+```
+
+Finner kameranettet (`ONE X …`), **spør om passordet i terminalen** (du skriver det inn — det
+lagres aldri i koden), kobler til, og setter `ipv4.never-default` så **internett blir værende
+på ethernet** (du mister ikke TeamViewer). Bruker NetworkManager (`nmcli`).
+
+> Kameraet sender på 5 GHz (channel 36). Dukker ikke nettet opp, må WiFi-landet settes først:
+> `sudo raspi-config nonint do_wifi_country NO` — ellers skjuler Pi-en alle 5 GHz-nett.
+
 ## Test 1 — kameratilkobling (ingen avhengigheter)
 
-Koble Pi-en til kameraets WiFi først (kameraet blir da `192.168.42.1`), så:
+Når Pi-en er på kameraets WiFi (kameraet er da `192.168.42.1`):
 
 ```bash
 python3 recorder/probe_camera.py
