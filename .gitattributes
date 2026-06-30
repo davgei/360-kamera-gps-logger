@@ -1,0 +1,5 @@
+# Shell scripts and systemd units need LF endings even when edited on Windows,
+# or the #! shebang breaks on the Pi.
+* text=auto eol=lf
+*.sh text eol=lf
+*.service text eol=lf

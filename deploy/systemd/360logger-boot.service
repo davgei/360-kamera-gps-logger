@@ -1,0 +1,14 @@
+[Unit]
+Description=Self-update 360-kamera-gps-logger and keep TeamViewer online
+After=network-online.target teamviewerd.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=REPO_DIR=__REPO_DIR__
+Environment=REPO_USER=__REPO_USER__
+ExecStart=__REPO_DIR__/deploy/self-update.sh
+
+[Install]
+WantedBy=multi-user.target
