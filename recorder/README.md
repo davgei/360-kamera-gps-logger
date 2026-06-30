@@ -53,7 +53,23 @@ python3 recorder/button_toggle.py --device /dev/input/event3 --key BTN_LEFT
 Trykk → `START recording`, trykk igjen → `STOP recording`. Ingen kamera involvert. For å lese
 input uten `sudo`: `sudo usermod -aG input $USER` og logg inn på nytt.
 
+## Ta opp et testklipp — `record_clip.py`
+
+Når Pi-en er på kameraets WiFi:
+
+```bash
+python3 recorder/record_clip.py              # 5 sekunder
+python3 recorder/record_clip.py --seconds 10
+```
+
+Setter video-modus → starter opptak → venter → stopper, og skriver ut **fil-URL-ene** kameraet
+returnerer. ONE X lager to `.mp4` per klipp (én per linse). Den **tar opp et ekte klipp** på
+kameraets SD-kort. Kommandosekvensen er verifisert mot Insta360s offisielle OSC-dokumentasjon.
+
+> Får du `unactivated`: ONE X må aktiveres én gang i den offisielle Insta360-appen før OSC-API-et
+> kan ta opp.
+
 ## Neste steg
 
-Når begge testene er grønne, kobler vi dem sammen: knapp → start/stopp opptak på kameraet via
-OSC, og legger til henting av klipp + (senere) GPS og opplasting.
+Knapp og opptak virker hver for seg. Gjenstår å koble dem sammen (knapp → `startCapture` /
+`stopCapture`), så **hente klippene** fra kameraet til Pi-en, og senere GPS + opplasting.
