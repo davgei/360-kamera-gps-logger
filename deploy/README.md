@@ -35,10 +35,16 @@ krasj). Den starter det du setter i `deploy/app.env` — en vanlig committet kon
 hemmeligheter:
 
 ```bash
-APP_CMD="python3 main.py"        # kommandoen som starter loggeren (tom = ingen app ennå)
-APP_WORKDIR=""                   # mappe for kommandoen; tom = repo-rot
-APP_REQUIREMENTS="requirements.txt"   # valgfritt; pip-installeres ved hver kodeoppdatering
+APP_CMD="python3 main.py"             # kommandoen som starter loggeren (tom = ingen app ennå)
+APP_WORKDIR=""                        # mappe for kommandoen; tom = repo-rot
+APP_REQUIREMENTS="requirements.txt"   # valgfritt; deps installeres i et venv ved hver oppdatering
+APP_VENV="venv"                       # venv-mappe (relativt til repo-rot); git-ignorert
 ```
+
+Python 3 er ferdig installert på Raspberry Pi OS. `bootstrap.sh` installerer i tillegg
+`python3-pip` og `python3-venv`. Setter du `APP_REQUIREMENTS`, lager `self-update.sh` et
+virtuelt miljø (`venv/`) og installerer deps der — det unngår «externally-managed-environment»
+(PEP 668) på nyere Pi OS. `APP_CMD` bruker `python3`, som da peker til venv-en automatisk.
 
 Når logger-koden er på plass: fyll inn `APP_CMD`, commit og push. Alle Pi-er plukker det opp
 ved neste boot (`self-update.sh` puller koden, installerer evt. deps og restarter appen).
@@ -49,7 +55,7 @@ Er `APP_CMD` tom, gjør tjenesten ingenting — den crash-looper ikke.
 `360logger-boot.service` kjører `deploy/self-update.sh`, som:
 - `git pull --ff-only` på repoet (selvoppdatering),
 - sørger for at TeamViewer-daemonen kjører,
-- pip-installerer `APP_REQUIREMENTS` hvis satt,
+- lager venv og installerer `APP_REQUIREMENTS` der hvis satt,
 - restarter `360logger-app.service` så ny kode tas i bruk.
 
 TeamViewer-tilknytningen skjer kun ved bootstrap (markør `/var/lib/360logger/teamviewer-assigned`).

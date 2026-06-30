@@ -34,9 +34,9 @@ log() { echo "[bootstrap] $*"; }
 log "Repo:     $REPO_DIR"
 log "Owned by: $REPO_USER"
 
-log "Installing git + helpers"
+log "Installing git, Python tooling + helpers"
 apt-get update
-apt-get install -y git ca-certificates curl
+apt-get install -y git ca-certificates curl python3 python3-pip python3-venv
 
 log "Installing TeamViewer Host"
 if ! command -v teamviewer >/dev/null 2>&1; then

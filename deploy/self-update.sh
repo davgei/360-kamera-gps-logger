@@ -18,14 +18,20 @@ fi
 log "Ensuring TeamViewer daemon is running"
 teamviewer daemon start >/dev/null 2>&1 || true
 
-# Install/refresh the logger app's Python dependencies if configured.
+# Install/refresh the logger app's Python dependencies into a venv if configured.
 APP_REQUIREMENTS=""
+APP_VENV="venv"
 APP_ENV="$REPO_DIR/deploy/app.env"
 # shellcheck disable=SC1090
 [[ -f "$APP_ENV" ]] && source "$APP_ENV"
 if [[ -n "$APP_REQUIREMENTS" && -f "$REPO_DIR/$APP_REQUIREMENTS" ]]; then
-  log "Installing Python deps from $APP_REQUIREMENTS"
-  runuser -u "$REPO_USER" -- pip3 install --user -r "$REPO_DIR/$APP_REQUIREMENTS" \
+  VENV_DIR="$REPO_DIR/$APP_VENV"
+  if [[ ! -d "$VENV_DIR" ]]; then
+    log "Creating virtualenv at $VENV_DIR"
+    runuser -u "$REPO_USER" -- python3 -m venv "$VENV_DIR" || log "venv creation failed — continuing"
+  fi
+  log "Installing Python deps from $APP_REQUIREMENTS into $APP_VENV"
+  runuser -u "$REPO_USER" -- "$VENV_DIR/bin/pip" install -r "$REPO_DIR/$APP_REQUIREMENTS" \
     || log "pip install failed — continuing"
 fi
 

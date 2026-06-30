@@ -1,2 +1,7 @@
 # TeamViewer assignment token — a secret, never commit it
 deploy/teamviewer.token
+
+# Python virtualenv created on the Pi (generated, platform-specific)
+venv/
+__pycache__/
+*.pyc
