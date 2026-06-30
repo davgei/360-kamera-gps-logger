@@ -69,7 +69,47 @@ kameraets SD-kort. Kommandosekvensen er verifisert mot Insta360s offisielle OSC-
 > Får du `unactivated`: ONE X må aktiveres én gang i den offisielle Insta360-appen før OSC-API-et
 > kan ta opp.
 
+## Google Drive med rclone (engangs)
+
+Opptakene lastes opp til Google Drive med `rclone`. Sett det opp én gang på Pi-en:
+
+```bash
+sudo apt-get install -y rclone
+rclone config
+```
+I `rclone config`:
+- `n` (new remote) → navn: **`gdrive`**
+- Storage: velg **Google Drive** (`drive`)
+- `client_id` / `client_secret`: tom (Enter)
+- Scope: `1` (full tilgang)
+- `service_account_file`: tom
+- *Edit advanced config?* `n`
+- *Use web browser to automatically authenticate?*
+  - Pi med skrivebord/nettleser: `y` → logg inn med Google-kontoen din → tillat
+  - Headless/SSH: `n` → kjør `rclone authorize "drive"` på en PC med nettleser, lim token tilbake
+- *Configure this as a Shared Drive?* `n` → `y` (OK) → `q` (quit)
+
+Test: `rclone lsd gdrive:` skal liste mappene i Drive. Tokenet lagres i
+`~/.config/rclone/rclone.conf` på Pi-en — aldri i repoet.
+
+## Kjør hele opptaksøkta — `record_session.py`
+
+Forutsetninger: `python3-evdev` + `rclone` installert, `gdrive`-remote satt opp, og Pi-en på
+kameraets WiFi. Kjør **fra repo-roten**:
+
+```bash
+python3 -m recorder.record_session
+```
+- Trykk på **muse-tasten** → opptak starter. Trykk igjen → opptak stopper.
+- Hvert klipps to `.mp4`-filer lastes ned til `clip_<tidspunkt>/` på Pi-en og lastes opp til
+  `gdrive:360-footage/clip_<tidspunkt>/` — begge filene samlet i én mappe.
+- Nedlasting + opplasting skjer i bakgrunnen, så du kan starte neste klipp med en gang.
+- Programmet kjører til **Ctrl+C** (venter da på at pågående opplastinger fullføres).
+
+Valg: `--remote <navn>`, `--remote-path <mappe>`, `--staging <lokal mappe>`,
+`--keep-local` (behold lokal kopi etter opplasting), `--device /dev/input/eventX`, `--key BTN_LEFT`.
+
 ## Neste steg
 
-Knapp og opptak virker hver for seg. Gjenstår å koble dem sammen (knapp → `startCapture` /
-`stopCapture`), så **hente klippene** fra kameraet til Pi-en, og senere GPS + opplasting.
+Gjenstår: **GPS-logging** (kobles til hvert klipp), og å sette opp at økta starter automatisk
+ved boot (egen systemd-tjeneste, som `deploy/`-laget).
