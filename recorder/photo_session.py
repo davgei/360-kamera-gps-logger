@@ -42,6 +42,7 @@ def main() -> int:
     parser.add_argument("--key", default="BTN_LEFT", help="button to listen for (default BTN_LEFT)")
     parser.add_argument("--keep-local", action="store_true", help="keep the local copy after upload")
     parser.add_argument("--no-leds", action="store_true", help="run without the status LEDs")
+    parser.add_argument("--no-warmup", action="store_true", help="skip the startup warm-up shot")
     args = parser.parse_args()
 
     require_rclone(args.remote)
@@ -63,6 +64,10 @@ def main() -> int:
             f"Camera not reachable at {args.host} yet — the session keeps looking every ~3 s "
             "(red LED). Join the camera WiFi; clicks are ignored until it is found. Ctrl+C to quit."
         )
+
+    if info and not args.no_warmup:
+        print("Warming up the camera (the first shot is slow — getting it out of the way)...")
+        camera.warm_up()
 
     leds = StatusLeds(enabled=not args.no_leds)
     monitor = ReadinessMonitor(leds, camera)

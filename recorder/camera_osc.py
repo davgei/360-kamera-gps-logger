@@ -114,21 +114,28 @@ class OneXCamera:
     def take_picture(self, poll_interval: float = 0.5, max_wait: float = 30.0) -> str:
         """Take one still photo (async: poll /osc/commands/status until done).
 
-        Ensures the camera is in image mode right before the shot, and retries once if it
-        reports it is not in image mode — the ONE X needs setOptions immediately before
-        takePicture plus a moment to switch, or it fails with 'disabledCommand'.
+        Shoots immediately — the camera is normally left in image mode by warm_up() or the
+        previous shot. If it reports it is not in image mode, set image mode and retry once.
         """
-        self.set_image_mode()
-        time.sleep(0.6)
         try:
             return self._shoot(poll_interval, max_wait)
         except OscError as exc:
             message = str(exc).lower()
             if "disabledcommand" in message or "image mode" in message:
                 self.set_image_mode()
-                time.sleep(1.5)
+                time.sleep(1.0)
                 return self._shoot(poll_interval, max_wait)
             raise
+
+    def warm_up(self) -> None:
+        """Prime the camera: set image mode and take one throwaway shot to absorb the slow first
+        capture. The warm-up photo stays on the camera SD (it is not downloaded or uploaded)."""
+        self.set_image_mode()
+        time.sleep(0.6)
+        try:
+            self.take_picture()
+        except OscError:
+            pass
 
     def download(self, url: str, dest: Path) -> None:
         request = urllib.request.Request(url, method="GET")

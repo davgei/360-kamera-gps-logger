@@ -44,6 +44,7 @@ def main() -> int:
     parser.add_argument("--pano-size", default="5760x2880", help="equirectangular size WxH")
     parser.add_argument("--equirect-only", action="store_true", help="only produce the equirectangular image")
     parser.add_argument("--flat-only", action="store_true", help="only produce the flat views")
+    parser.add_argument("--rotate", default="cw,ccw", help="rotation per flat view: none|cw|ccw|180, comma-separated (matches --views)")
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -65,19 +66,22 @@ def main() -> int:
 
     if not args.equirect_only:
         fw, fh = args.flat_size.lower().split("x")
-        for token in args.views.split(","):
-            token = token.strip()
-            if not token:
-                continue
+        yaws = [t.strip() for t in args.views.split(",") if t.strip()]
+        rotates = [t.strip().lower() for t in args.rotate.split(",")]
+        transpose = {"cw": ",transpose=1", "ccw": ",transpose=2", "180": ",transpose=2,transpose=2"}
+        for i, token in enumerate(yaws):
             yaw = float(token)
+            rot = rotates[i] if i < len(rotates) else ""
+            extra = transpose.get(rot, "")
             dst = src.with_name(f"{src.stem}_flat_yaw{int(yaw)}.jpg")
             vf = (
                 f"v360=input=dfisheye:output=flat:ih_fov={args.fov}:iv_fov={args.fov}"
-                f":yaw={yaw}:pitch={args.pitch}:h_fov={args.out_fov}:v_fov={args.out_fov}:w={fw}:h={fh}"
+                f":yaw={yaw}:pitch={args.pitch}:h_fov={args.out_fov}:v_fov={args.out_fov}:w={fw}:h={fh}{extra}"
             )
             _ffmpeg(vf, src, dst)
             made.append(dst)
-            print(f"flat view yaw={yaw:g}° -> {dst.name}")
+            label = f" rot={rot}" if rot else ""
+            print(f"flat view yaw={yaw:g}°{label} -> {dst.name}")
 
     print(f"\nDone — {len(made)} file(s) next to the input. If the seam/edges look wrong, retune --fov (190-210).")
     return 0
