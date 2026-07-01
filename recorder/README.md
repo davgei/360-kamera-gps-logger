@@ -108,6 +108,21 @@ python3 -m recorder.photo_session
 Ansiktssladding kommer som Steg 2 (`deface` på de to 180°-fisheye-bildene), GPS-utløser i stedet
 for museklikk som Steg 3.
 
+## Gjøre om fisheye til flate bilder — `dewarp.py`  (verktøy/test)
+
+ONE X-bildet er to fisheye-«bobler» i én JPEG. `ffmpeg` gjør det om — ingen Insta360 SDK trengs
+(den er for iOS/Android/x86, ikke Pi-ens ARM):
+
+```bash
+sudo apt-get install -y ffmpeg
+python3 recorder/dewarp.py <bilde>.jpg             # equirektangulær + flate utsnitt (yaw 0 og 180)
+python3 recorder/dewarp.py <bilde>.jpg --fov 205   # finjuster fisheye-FOV til kameraet
+python3 recorder/dewarp.py <bilde>.jpg --views 90,270 --pitch -10
+```
+Lager `<navn>_equirect.jpg` (helt panorama) og `<navn>_flat_yawNNN.jpg` (flate «vanlige» bilder).
+Juster `--fov` (190–210) til skjøten ser riktig ut. Når du har valgt utsnitt/format, kobles
+konverteringen inn i `photo_session` (før sladding + opplasting).
+
 ## Kjør hele opptaksøkta (video) — `record_session.py`
 
 > Video-varianten (eldre). For gjeldende foto-retning, bruk `photo_session.py` over.

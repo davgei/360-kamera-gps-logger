@@ -47,6 +47,7 @@ python3 recorder/record_clip.py       # ta opp ett 5-sekunders testklipp
 rclone lsd gdrive:                    # virker Google Drive-tilkoblingen?
 python3 -m recorder.status_leds --test  # lys hver LED etter tur (sjekk kobling)
 python3 -m recorder.status_leds         # følg klar-status + batteri (grønn/rød LED)
+python3 recorder/dewarp.py <bilde>.jpg  # gjør dual-fisheye om til flate/panorama-bilder (ffmpeg)
 ```
 
 Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)
