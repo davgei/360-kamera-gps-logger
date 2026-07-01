@@ -91,11 +91,7 @@ class OneXCamera:
         with self._lock, urllib.request.urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def take_picture(self, poll_interval: float = 0.5, max_wait: float = 30.0) -> str:
-        """Take one still photo. takePicture is async: poll /osc/commands/status until done.
-
-        Returns the photo's fileUrl (single JPEG). Raises OscError on camera error/timeout.
-        """
+    def _shoot(self, poll_interval: float, max_wait: float) -> str:
         result = self._execute("camera.takePicture")
         if result.get("state") == "done":
             return result.get("results", {}).get("fileUrl", "")
@@ -114,6 +110,25 @@ class OneXCamera:
                 error = status.get("error", {})
                 raise OscError(f"takePicture: {error.get('code', 'error')} — {error.get('message', '')}")
         raise OscError("takePicture: timed out waiting for the photo")
+
+    def take_picture(self, poll_interval: float = 0.5, max_wait: float = 30.0) -> str:
+        """Take one still photo (async: poll /osc/commands/status until done).
+
+        Ensures the camera is in image mode right before the shot, and retries once if it
+        reports it is not in image mode — the ONE X needs setOptions immediately before
+        takePicture plus a moment to switch, or it fails with 'disabledCommand'.
+        """
+        self.set_image_mode()
+        time.sleep(0.6)
+        try:
+            return self._shoot(poll_interval, max_wait)
+        except OscError as exc:
+            message = str(exc).lower()
+            if "disabledcommand" in message or "image mode" in message:
+                self.set_image_mode()
+                time.sleep(1.5)
+                return self._shoot(poll_interval, max_wait)
+            raise
 
     def download(self, url: str, dest: Path) -> None:
         request = urllib.request.Request(url, method="GET")

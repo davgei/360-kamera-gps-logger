@@ -31,9 +31,9 @@ import threading
 import urllib.error
 from pathlib import Path
 
-from evdev import InputDevice, ecodes
+from evdev import ecodes
 
-from recorder.button import find_button_device, wait_for_presses
+from recorder.button import acquire_button_device, wait_for_presses
 from recorder.camera_osc import OneXCamera, OscError
 from recorder.status_leds import ReadinessMonitor, StatusLeds
 from recorder.uploader import require_rclone, upload_worker
@@ -61,23 +61,22 @@ def main() -> int:
         sys.exit(f"Unknown key name {args.key!r}. Examples: BTN_LEFT, BTN_RIGHT, KEY_ENTER.")
 
     camera = OneXCamera(args.host)
+    info = None
     try:
         info = camera.get_info()
-    except urllib.error.URLError as exc:
-        sys.exit(
-            f"Cannot reach the camera at {args.host} ({exc.reason}). "
-            "Join the camera WiFi first: python3 recorder/connect_camera_wifi.py"
+    except urllib.error.URLError:
+        pass
+    if info:
+        print(f"Camera: {info.get('model', '?')} (firmware {info.get('firmwareVersion', '?')})")
+    else:
+        print(
+            f"Camera not reachable at {args.host} yet — the session keeps looking every ~3 s "
+            "(red LED). Join the camera WiFi; recording start is blocked until it is found. Ctrl+C to quit."
         )
-    print(f"Camera: {info.get('model', '?')} (firmware {info.get('firmwareVersion', '?')})")
-
-    device = InputDevice(args.device) if args.device else find_button_device(key_code)
-    if device is None:
-        sys.exit("No button device found. Plug in the mouse, or pass --device (see: python3 recorder/button_toggle.py --list).")
-    print(f"Button: {device.name!r} at {device.path}, key {args.key}")
 
     leds = StatusLeds(enabled=not args.no_leds)
     monitor = ReadinessMonitor(leds, camera)
-    monitor.camera_ok = True  # camera was just verified reachable via get_info()
+    monitor.camera_ok = info is not None
     monitor.start()
 
     staging = Path(args.staging).expanduser()
@@ -93,37 +92,49 @@ def main() -> int:
         print(f"Found leftover clip {leftover.name} from a previous run — queuing for upload.")
         jobs.put((leftover.name, []))
 
-    print("\nReady. Press the mouse button to START, press again to STOP. Ctrl+C to quit.\n")
-
     recording = False
     start_time = datetime.datetime.now()
-    try:
-        for _ in wait_for_presses(device, key_code):
-            try:
-                if not recording:
-                    if not monitor.camera_ok:
-                        print("Camera not reachable — can't start recording. (Red light: check the camera WiFi.)")
-                        continue
-                    camera.set_video_mode()
-                    camera.start_capture()
-                    recording = True
-                    start_time = datetime.datetime.now()
-                    leds.set_recording(True)
-                    print("● Recording... (press again to stop)")
+
+    def handle_press() -> None:
+        nonlocal recording, start_time
+        try:
+            if not recording:
+                if not monitor.camera_ok:
+                    print("Camera not reachable — can't start recording. (Red light: check the camera WiFi.)")
+                    return
+                camera.set_video_mode()
+                camera.start_capture()
+                recording = True
+                start_time = datetime.datetime.now()
+                leds.set_recording(True)
+                print("● Recording... (press again to stop)")
+            else:
+                file_urls = camera.stop_capture()
+                recording = False
+                leds.set_recording(False)
+                clip_name = "clip_" + start_time.strftime("%Y%m%d_%H%M%S")
+                if file_urls:
+                    jobs.put((clip_name, file_urls))
+                    print(f"■ Stopped — queued {clip_name} ({len(file_urls)} files) for download + upload.")
                 else:
-                    file_urls = camera.stop_capture()
-                    recording = False
-                    leds.set_recording(False)
-                    clip_name = "clip_" + start_time.strftime("%Y%m%d_%H%M%S")
-                    if file_urls:
-                        jobs.put((clip_name, file_urls))
-                        print(f"■ Stopped — queued {clip_name} ({len(file_urls)} files) for download + upload.")
-                    else:
-                        print("■ Stopped, but the camera returned no files.")
-            except OscError as exc:
-                print(f"Camera error: {exc}")
-            except urllib.error.URLError as exc:
-                print(f"Lost camera connection ({exc.reason}). Is the Pi still on the camera WiFi?")
+                    print("■ Stopped, but the camera returned no files.")
+        except OscError as exc:
+            print(f"Camera error: {exc}")
+        except urllib.error.URLError as exc:
+            print(f"Lost camera connection ({exc.reason}). Is the Pi still on the camera WiFi?")
+
+    print("\nReady. Press the mouse button to START, press again to STOP. Ctrl+C to quit.\n")
+
+    try:
+        while True:
+            device = acquire_button_device(key_code, args.device)
+            print(f"Button: {device.name!r} at {device.path}, key {args.key}")
+            try:
+                for _ in wait_for_presses(device, key_code):
+                    handle_press()
+            except OSError as exc:
+                print(f"Lost the button device ({exc}) — looking for it again (retry ~3 s).")
+                continue
     except KeyboardInterrupt:
         print("\nCtrl+C — stopping.")
         leds.set_recording(False)

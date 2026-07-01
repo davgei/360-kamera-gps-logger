@@ -136,6 +136,7 @@ class ReadinessMonitor(threading.Thread):
     def run(self) -> None:
         last_ready: bool | None = None
         last_bucket: int | None = None
+        last_cam: bool | None = None
         while not self._stop.is_set():
             inet = internet_ok()
             cam, battery = read_camera(self.camera)
@@ -146,6 +147,9 @@ class ReadinessMonitor(threading.Thread):
             self.battery = battery
             self.leds.set_ready(ready, battery_low=low)
 
+            if cam != last_cam:
+                print(f"[status] camera {'found' if cam else 'not reachable'} at {self.camera.host}")
+                last_cam = cam
             if ready != last_ready:
                 print(f"[status] {'READY' if ready else 'NOT READY'} "
                       f"(internet {'ok' if inet else 'down'}, camera {'ok' if cam else 'down'})")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Iterator
 
 try:
@@ -23,6 +24,25 @@ def find_button_device(key_code: int = ecodes.BTN_LEFT) -> InputDevice | None:
         if device is not None and key_code in device.capabilities().get(ecodes.EV_KEY, []):
             return device
     return None
+
+
+def acquire_button_device(
+    key_code: int = ecodes.BTN_LEFT, device_path: str | None = None, retry_interval: float = 3.0
+) -> InputDevice:
+    """Block until a usable input device is available, retrying every retry_interval seconds.
+
+    Returns an InputDevice once found. Interruptible with Ctrl+C (raises KeyboardInterrupt).
+    """
+    announced = False
+    while True:
+        device = _open(device_path) if device_path else find_button_device(key_code)
+        if device is not None:
+            return device
+        if not announced:
+            target = device_path or "a mouse/button"
+            print(f"Waiting for {target} to be plugged in (retry every ~{int(retry_interval)} s). Ctrl+C to quit.")
+            announced = True
+        time.sleep(retry_interval)
 
 
 def wait_for_presses(device: InputDevice, key_code: int) -> Iterator[None]:

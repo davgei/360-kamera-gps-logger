@@ -24,9 +24,9 @@ import threading
 import urllib.error
 from pathlib import Path
 
-from evdev import InputDevice, ecodes
+from evdev import ecodes
 
-from recorder.button import find_button_device, wait_for_presses
+from recorder.button import acquire_button_device, wait_for_presses
 from recorder.camera_osc import OneXCamera, OscError
 from recorder.status_leds import ReadinessMonitor, StatusLeds
 from recorder.uploader import require_rclone, upload_worker
@@ -51,27 +51,22 @@ def main() -> int:
         sys.exit(f"Unknown key name {args.key!r}. Examples: BTN_LEFT, BTN_RIGHT, KEY_ENTER.")
 
     camera = OneXCamera(args.host)
+    info = None
     try:
         info = camera.get_info()
-    except urllib.error.URLError as exc:
-        sys.exit(
-            f"Cannot reach the camera at {args.host} ({exc.reason}). "
-            "Join the camera WiFi first: python3 recorder/connect_camera_wifi.py"
+    except urllib.error.URLError:
+        pass
+    if info:
+        print(f"Camera: {info.get('model', '?')} (firmware {info.get('firmwareVersion', '?')})")
+    else:
+        print(
+            f"Camera not reachable at {args.host} yet — the session keeps looking every ~3 s "
+            "(red LED). Join the camera WiFi; clicks are ignored until it is found. Ctrl+C to quit."
         )
-    print(f"Camera: {info.get('model', '?')} (firmware {info.get('firmwareVersion', '?')})")
-    try:
-        camera.set_image_mode()
-    except (OscError, urllib.error.URLError) as exc:
-        print(f"Warning: could not set image mode now ({exc}); will still try to shoot.")
-
-    device = InputDevice(args.device) if args.device else find_button_device(key_code)
-    if device is None:
-        sys.exit("No button device found. Plug in the mouse, or pass --device (see: python3 recorder/button_toggle.py --list).")
-    print(f"Button: {device.name!r} at {device.path}, key {args.key}")
 
     leds = StatusLeds(enabled=not args.no_leds)
     monitor = ReadinessMonitor(leds, camera)
-    monitor.camera_ok = True  # camera was just verified reachable via get_info()
+    monitor.camera_ok = info is not None
     monitor.start()
 
     staging = Path(args.staging).expanduser()
@@ -87,29 +82,39 @@ def main() -> int:
         print(f"Found leftover {leftover.name} from a previous run — queuing for upload.")
         jobs.put((leftover.name, []))
 
+    def capture_one() -> None:
+        if not monitor.camera_ok:
+            print("Camera not reachable — can't take a photo. (Red light: check the camera WiFi.)")
+            return
+        try:
+            leds.set_recording(True)
+            print("📷 Taking photo ...")
+            file_url = camera.take_picture()
+            name = "photo_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            if file_url:
+                jobs.put((name, [file_url]))
+                print(f"Captured {name} — queued for download + upload.")
+            else:
+                print("Photo taken, but the camera returned no file URL.")
+        except OscError as exc:
+            print(f"Camera error: {exc}")
+        except urllib.error.URLError as exc:
+            print(f"Lost camera connection ({exc.reason}). Is the Pi still on the camera WiFi?")
+        finally:
+            leds.set_recording(False)
+
     print("\nReady. Click the mouse button to take a photo. Ctrl+C to quit.\n")
 
     try:
-        for _ in wait_for_presses(device, key_code):
-            if not monitor.camera_ok:
-                print("Camera not reachable — can't take a photo. (Red light: check the camera WiFi.)")
-                continue
+        while True:
+            device = acquire_button_device(key_code, args.device)
+            print(f"Button: {device.name!r} at {device.path}, key {args.key}")
             try:
-                leds.set_recording(True)
-                print("📷 Taking photo ...")
-                file_url = camera.take_picture()
-                name = "photo_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                if file_url:
-                    jobs.put((name, [file_url]))
-                    print(f"Captured {name} — queued for download + upload.")
-                else:
-                    print("Photo taken, but the camera returned no file URL.")
-            except OscError as exc:
-                print(f"Camera error: {exc}")
-            except urllib.error.URLError as exc:
-                print(f"Lost camera connection ({exc.reason}). Is the Pi still on the camera WiFi?")
-            finally:
-                leds.set_recording(False)
+                for _ in wait_for_presses(device, key_code):
+                    capture_one()
+            except OSError as exc:
+                print(f"Lost the button device ({exc}) — looking for it again (retry ~3 s).")
+                continue
     except KeyboardInterrupt:
         print("\nCtrl+C — stopping.")
     finally:
