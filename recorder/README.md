@@ -110,7 +110,10 @@ Hvert bilde flates automatisk ut til 2 pannini-utsnitt (`ffmpeg`), ansiktene **s
 ikke sladdes pålitelig). Feiler en sladding, lastes ikke det bildet opp (personvern-sikkert).
 Krever `ffmpeg` og `deface` (`pipx install deface`). Overstyr med `--proj`/`--out-fov`/`--views`/
 `--rotate`/`--fov` (flatting), `--blur-thresh`/`--blur-scale`/`--no-blur` (sladding), `--keep-raw`
-(last også opp råbildet), `--no-flatten`. GPS-utløser i stedet for museklikk kommer som Steg 3.
+(last også opp råbildet), `--no-flatten`. Opplasting prøves på nytt hvert **30. sekund**, så bilder tatt uten nett lastes opp automatisk når
+nettet er tilbake. En boot-tjeneste (`360logger-upload`) laster også opp ventende filer ved hver
+oppstart, og `python3 -m recorder.upload_pending` gjør det manuelt. GPS-utløser i stedet for
+museklikk kommer som Steg 3.
 
 ## Gjøre om fisheye til flate bilder — `dewarp.py`  (verktøy/test)
 

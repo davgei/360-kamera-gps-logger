@@ -75,14 +75,14 @@ else
 fi
 
 log "Installing systemd services"
-for unit in 360logger-boot 360logger-app; do
+for unit in 360logger-boot 360logger-app 360logger-upload; do
   sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
     "$DEPLOY_DIR/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
 done
 
 chmod +x "$DEPLOY_DIR"/*.sh
 systemctl daemon-reload
-systemctl enable 360logger-boot.service 360logger-app.service
+systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service
 
 log "Done. On every boot the Pi now pulls the latest code, keeps TeamViewer"
 log "online, and (re)starts the logger app from deploy/app.env."

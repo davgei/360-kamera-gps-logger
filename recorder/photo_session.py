@@ -32,7 +32,7 @@ from recorder.button import acquire_button_device, wait_for_presses
 from recorder.camera_osc import OneXCamera, OscError
 from recorder.status_leds import ReadinessMonitor, StatusLeds
 from recorder.dewarp import flatten_views
-from recorder.uploader import require_rclone, upload_worker
+from recorder.uploader import process_upload_worker, require_rclone
 
 
 def _blur_in_place(path: Path, thresh: float, scale: str) -> None:
@@ -125,15 +125,11 @@ def main() -> int:
     jobs: queue.Queue = queue.Queue()
     proc = None if args.no_flatten else process
     worker = threading.Thread(
-        target=upload_worker,
+        target=process_upload_worker,
         args=(jobs, camera, staging, args.remote, args.remote_path, args.keep_local, proc),
         daemon=True,
     )
     worker.start()
-
-    for leftover in sorted(p for p in staging.glob("photo_*") if p.is_dir() and any(p.iterdir())):
-        print(f"Found leftover {leftover.name} from a previous run — queuing for upload.")
-        jobs.put((leftover.name, []))
 
     def capture_one() -> None:
         if not monitor.camera_ok:
@@ -156,7 +152,8 @@ def main() -> int:
         finally:
             leds.set_recording(False)
 
-    print("\nReady. Click the mouse button to take a photo. Ctrl+C to quit.\n")
+    print("\nReady. Click the mouse button to take a photo. Ctrl+C to quit.")
+    print("(Uploads retry every 30 s, so photos taken offline upload once the net is back.)\n")
 
     try:
         while True:
@@ -174,7 +171,7 @@ def main() -> int:
         leds.set_recording(False)
         monitor.stop()
         jobs.put(None)
-        print("Finishing pending downloads/uploads — please wait. (Ctrl+C again to abandon; local files are always kept.)")
+        print("Finishing processing + uploads — please wait. (Ctrl+C again to abandon; local files upload on the next run/boot.)")
         try:
             worker.join()
         except KeyboardInterrupt:

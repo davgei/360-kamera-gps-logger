@@ -1,0 +1,14 @@
+[Unit]
+Description=Upload pending 360 photos to Google Drive on boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__REPO_USER__
+Environment=HOME=/home/__REPO_USER__
+WorkingDirectory=__REPO_DIR__
+ExecStart=/usr/bin/python3 -m recorder.upload_pending
+
+[Install]
+WantedBy=multi-user.target
