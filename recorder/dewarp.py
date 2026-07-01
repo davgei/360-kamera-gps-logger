@@ -36,6 +36,32 @@ def _ffmpeg(vf: str, src: Path, dst: Path) -> None:
     )
 
 
+def flatten_views(src: Path, proj: str = "pannini", out_fov: float = 190.0, views: str = "0,180",
+                  rotate: str = "cw,ccw", fov: float = 200.0, flat_size: str = "2880x2880",
+                  pitch: float = 0.0, quiet: bool = False) -> list:
+    """Produce flattened view(s) next to src (one JPEG per yaw in `views`). Returns the paths."""
+    fw, fh = flat_size.lower().split("x")
+    yaws = [t.strip() for t in views.split(",") if t.strip()]
+    rotates = [t.strip().lower() for t in rotate.split(",")]
+    transpose = {"cw": ",transpose=1", "ccw": ",transpose=2", "180": ",transpose=2,transpose=2"}
+    made = []
+    for i, token in enumerate(yaws):
+        yaw = float(token)
+        rot = rotates[i] if i < len(rotates) else ""
+        extra = transpose.get(rot, "")
+        dst = src.with_name(f"{src.stem}_{proj}_yaw{int(yaw)}.jpg")
+        vf = (
+            f"v360=input=dfisheye:output={proj}:ih_fov={fov}:iv_fov={fov}"
+            f":yaw={yaw}:pitch={pitch}:h_fov={out_fov}:v_fov={out_fov}:w={fw}:h={fh}{extra}"
+        )
+        _ffmpeg(vf, src, dst)
+        made.append(dst)
+        if not quiet:
+            label = f" rot={rot}" if rot else ""
+            print(f"{proj} view yaw={yaw:g}°{label} -> {dst.name}")
+    return made
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("photo", help="dual-fisheye JPEG from the ONE X")
@@ -72,23 +98,10 @@ def main() -> int:
         print(f"equirectangular -> {dst.name}")
 
     if not args.equirect_only:
-        fw, fh = args.flat_size.lower().split("x")
-        yaws = [t.strip() for t in args.views.split(",") if t.strip()]
-        rotates = [t.strip().lower() for t in args.rotate.split(",")]
-        transpose = {"cw": ",transpose=1", "ccw": ",transpose=2", "180": ",transpose=2,transpose=2"}
-        for i, token in enumerate(yaws):
-            yaw = float(token)
-            rot = rotates[i] if i < len(rotates) else ""
-            extra = transpose.get(rot, "")
-            dst = src.with_name(f"{src.stem}_{args.proj}_yaw{int(yaw)}.jpg")
-            vf = (
-                f"v360=input=dfisheye:output={args.proj}:ih_fov={args.fov}:iv_fov={args.fov}"
-                f":yaw={yaw}:pitch={args.pitch}:h_fov={args.out_fov}:v_fov={args.out_fov}:w={fw}:h={fh}{extra}"
-            )
-            _ffmpeg(vf, src, dst)
-            made.append(dst)
-            label = f" rot={rot}" if rot else ""
-            print(f"{args.proj} view yaw={yaw:g}°{label} -> {dst.name}")
+        made += flatten_views(
+            src, proj=args.proj, out_fov=args.out_fov, views=args.views,
+            rotate=args.rotate, fov=args.fov, flat_size=args.flat_size, pitch=args.pitch,
+        )
 
     print(f"\nDone — {len(made)} file(s) next to the input. If the seam/edges look wrong, retune --fov (190-210).")
     return 0

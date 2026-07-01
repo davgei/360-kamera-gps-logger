@@ -29,6 +29,7 @@ from evdev import ecodes
 from recorder.button import acquire_button_device, wait_for_presses
 from recorder.camera_osc import OneXCamera, OscError
 from recorder.status_leds import ReadinessMonitor, StatusLeds
+from recorder.dewarp import flatten_views
 from recorder.uploader import require_rclone, upload_worker
 
 
@@ -43,6 +44,12 @@ def main() -> int:
     parser.add_argument("--keep-local", action="store_true", help="keep the local copy after upload")
     parser.add_argument("--no-leds", action="store_true", help="run without the status LEDs")
     parser.add_argument("--no-warmup", action="store_true", help="skip the startup warm-up shot")
+    parser.add_argument("--no-flatten", action="store_true", help="upload the raw dual-fisheye only (no flattened views)")
+    parser.add_argument("--proj", default="pannini", help="flatten projection: he/sg/pannini/cylindrical/flat/fisheye")
+    parser.add_argument("--out-fov", type=float, default=190.0, help="flatten output field of view (deg)")
+    parser.add_argument("--views", default="0,180", help="flatten yaw angles, comma-separated (deg)")
+    parser.add_argument("--rotate", default="cw,ccw", help="flatten rotation per view: none|cw|ccw|180, comma-separated")
+    parser.add_argument("--fov", type=float, default=200.0, help="input fisheye per-lens FOV (deg)")
     args = parser.parse_args()
 
     require_rclone(args.remote)
@@ -77,9 +84,20 @@ def main() -> int:
     staging = Path(args.staging).expanduser()
     staging.mkdir(parents=True, exist_ok=True)
 
+    def flatten(item_dir: Path) -> None:
+        for jpg in sorted(item_dir.glob("*.jpg")):
+            if f"_{args.proj}_yaw" in jpg.name:
+                continue  # already a flattened output
+            print(f"[{item_dir.name}] flattening {jpg.name} ...")
+            flatten_views(jpg, proj=args.proj, out_fov=args.out_fov, views=args.views,
+                          rotate=args.rotate, fov=args.fov, quiet=True)
+
     jobs: queue.Queue = queue.Queue()
+    process = None if args.no_flatten else flatten
     worker = threading.Thread(
-        target=upload_worker, args=(jobs, camera, staging, args.remote, args.remote_path, args.keep_local), daemon=True
+        target=upload_worker,
+        args=(jobs, camera, staging, args.remote, args.remote_path, args.keep_local, process),
+        daemon=True,
     )
     worker.start()
 

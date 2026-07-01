@@ -31,7 +31,8 @@ def require_rclone(remote: str) -> None:
 
 
 def upload_worker(
-    jobs: "queue.Queue", camera: OneXCamera, staging: Path, remote: str, remote_path: str, keep_local: bool
+    jobs: "queue.Queue", camera: OneXCamera, staging: Path, remote: str, remote_path: str,
+    keep_local: bool, process=None,
 ) -> None:
     while True:
         job = jobs.get()
@@ -46,6 +47,11 @@ def upload_worker(
                 filename = url.rsplit("/", 1)[-1]
                 print(f"[{name}] downloading {filename} ...")
                 camera.download(url, item_dir / filename)
+            if process is not None:
+                try:
+                    process(item_dir)
+                except Exception as exc:
+                    print(f"[{name}] processing failed ({exc}) — uploading what we have")
             if not any(item_dir.iterdir()):
                 print(f"[{name}] no files to upload — skipping.")
                 continue

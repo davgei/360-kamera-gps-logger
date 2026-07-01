@@ -105,8 +105,10 @@ python3 -m recorder.photo_session
 - Blå LED lyser mens bildet tas; rød/grønn = klar-status; kameraet må være nåbart (ellers nektes).
 - Kjører til **Ctrl+C**. Valg: `--remote`, `--remote-path`, `--staging`, `--keep-local`, `--device`, `--key`, `--no-leds`.
 
-Ansiktssladding kommer som Steg 2 (`deface` på de to 180°-fisheye-bildene), GPS-utløser i stedet
-for museklikk som Steg 3.
+Hvert bilde flates automatisk ut til 2 pannini-utsnitt (`ffmpeg`), og **både originalen og de to
+utsnittene** lastes opp. Overstyr flatten-config med `--proj`, `--out-fov`, `--views`, `--rotate`,
+`--fov`, eller skru av med `--no-flatten`. Ansiktssladding kommer som Steg 2 (`deface` på de flate
+bildene), GPS-utløser i stedet for museklikk som Steg 3.
 
 ## Gjøre om fisheye til flate bilder — `dewarp.py`  (verktøy/test)
 
