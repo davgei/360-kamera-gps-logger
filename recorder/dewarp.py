@@ -11,6 +11,7 @@ No Insta360 SDK needed (that targets iOS/Android/x86, not the Pi's ARM) — ffmp
     python3 recorder/dewarp.py photo.jpg                 # equirect + flat views at yaw 0 and 180
     python3 recorder/dewarp.py photo.jpg --fov 205       # tune the input fisheye FOV per camera
     python3 recorder/dewarp.py photo.jpg --views 90,270  # aim the flat views elsewhere
+    python3 recorder/dewarp.py photo.jpg --proj sg --out-fov 180   # see ~the whole lens (wide)
     python3 recorder/dewarp.py photo.jpg --equirect-only
 
 Outputs are written next to the input as <name>_equirect.jpg and <name>_flat_yawNNN.jpg.
@@ -45,6 +46,10 @@ def main() -> int:
     parser.add_argument("--equirect-only", action="store_true", help="only produce the equirectangular image")
     parser.add_argument("--flat-only", action="store_true", help="only produce the flat views")
     parser.add_argument("--rotate", default="cw,ccw", help="rotation per flat view: none|cw|ccw|180, comma-separated (matches --views)")
+    parser.add_argument(
+        "--proj", default="flat", choices=["flat", "sg", "pannini", "cylindrical", "fisheye"],
+        help="view projection: flat=rectilinear (crops wide angles); sg/pannini/cylindrical show ~the whole lens; fisheye=raw",
+    )
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -73,15 +78,15 @@ def main() -> int:
             yaw = float(token)
             rot = rotates[i] if i < len(rotates) else ""
             extra = transpose.get(rot, "")
-            dst = src.with_name(f"{src.stem}_flat_yaw{int(yaw)}.jpg")
+            dst = src.with_name(f"{src.stem}_{args.proj}_yaw{int(yaw)}.jpg")
             vf = (
-                f"v360=input=dfisheye:output=flat:ih_fov={args.fov}:iv_fov={args.fov}"
+                f"v360=input=dfisheye:output={args.proj}:ih_fov={args.fov}:iv_fov={args.fov}"
                 f":yaw={yaw}:pitch={args.pitch}:h_fov={args.out_fov}:v_fov={args.out_fov}:w={fw}:h={fh}{extra}"
             )
             _ffmpeg(vf, src, dst)
             made.append(dst)
             label = f" rot={rot}" if rot else ""
-            print(f"flat view yaw={yaw:g}°{label} -> {dst.name}")
+            print(f"{args.proj} view yaw={yaw:g}°{label} -> {dst.name}")
 
     print(f"\nDone — {len(made)} file(s) next to the input. If the seam/edges look wrong, retune --fov (190-210).")
     return 0
