@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import datetime
 import queue
+import shutil
+import subprocess
 import sys
 import threading
 import urllib.error
@@ -31,6 +33,16 @@ from recorder.camera_osc import OneXCamera, OscError
 from recorder.status_leds import ReadinessMonitor, StatusLeds
 from recorder.dewarp import flatten_views
 from recorder.uploader import require_rclone, upload_worker
+
+
+def _blur_in_place(path: Path, thresh: float, scale: str) -> None:
+    """Face-blur `path` with deface, overwriting it (writes to a temp, then replaces)."""
+    tmp = path.with_suffix(".blur.jpg")
+    cmd = ["deface", str(path), "-o", str(tmp), "--thresh", str(thresh)]
+    if scale:
+        cmd += ["--scale", scale]
+    subprocess.run(cmd, check=True, start_new_session=True)
+    tmp.replace(path)
 
 
 def main() -> int:
@@ -50,9 +62,17 @@ def main() -> int:
     parser.add_argument("--views", default="0,180", help="flatten yaw angles, comma-separated (deg)")
     parser.add_argument("--rotate", default="cw,ccw", help="flatten rotation per view: none|cw|ccw|180, comma-separated")
     parser.add_argument("--fov", type=float, default=200.0, help="input fisheye per-lens FOV (deg)")
+    parser.add_argument("--no-blur", action="store_true", help="skip face blur (uploads flattened views un-blurred)")
+    parser.add_argument("--keep-raw", action="store_true", help="also upload the raw dual-fisheye (not reliably blurred)")
+    parser.add_argument("--blur-thresh", type=float, default=0.2, help="deface detection threshold (lower = fewer missed faces)")
+    parser.add_argument("--blur-scale", default="", help="deface detection scale WxH (faster, may miss small faces); empty = full res")
     args = parser.parse_args()
 
     require_rclone(args.remote)
+
+    if not args.no_blur and shutil.which("deface") is None:
+        print("WARNING: 'deface' not found — install with: pipx install deface")
+        print("         Face blur will fail, and un-blurred views will NOT be uploaded (privacy-safe).")
 
     key_code = ecodes.ecodes.get(args.key)
     if key_code is None:
@@ -84,19 +104,29 @@ def main() -> int:
     staging = Path(args.staging).expanduser()
     staging.mkdir(parents=True, exist_ok=True)
 
-    def flatten(item_dir: Path) -> None:
-        for jpg in sorted(item_dir.glob("*.jpg")):
-            if f"_{args.proj}_yaw" in jpg.name:
-                continue  # already a flattened output
-            print(f"[{item_dir.name}] flattening {jpg.name} ...")
-            flatten_views(jpg, proj=args.proj, out_fov=args.out_fov, views=args.views,
+    def process(item_dir: Path) -> None:
+        raws = [j for j in sorted(item_dir.glob("*.jpg")) if f"_{args.proj}_yaw" not in j.name]
+        for raw in raws:
+            print(f"[{item_dir.name}] flattening {raw.name} ...")
+            flatten_views(raw, proj=args.proj, out_fov=args.out_fov, views=args.views,
                           rotate=args.rotate, fov=args.fov, quiet=True)
+        if not args.no_blur:
+            for view in sorted(item_dir.glob(f"*_{args.proj}_yaw*.jpg")):
+                print(f"[{item_dir.name}] blurring faces in {view.name} ...")
+                try:
+                    _blur_in_place(view, args.blur_thresh, args.blur_scale)
+                except Exception as exc:
+                    print(f"[{item_dir.name}] BLUR FAILED for {view.name} ({exc}) — not uploading it")
+                    view.unlink(missing_ok=True)
+        if not args.keep_raw:
+            for raw in raws:
+                raw.unlink(missing_ok=True)
 
     jobs: queue.Queue = queue.Queue()
-    process = None if args.no_flatten else flatten
+    proc = None if args.no_flatten else process
     worker = threading.Thread(
         target=upload_worker,
-        args=(jobs, camera, staging, args.remote, args.remote_path, args.keep_local, process),
+        args=(jobs, camera, staging, args.remote, args.remote_path, args.keep_local, proc),
         daemon=True,
     )
     worker.start()

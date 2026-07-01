@@ -10,8 +10,9 @@ cd ~/360-kamera-gps-logger
 ## Engangs-oppsett på Pi-en (gjør én gang)
 
 ```bash
-# Avhengigheter: python3-evdev (musetasten), rclone (Google Drive), gpiozero/lgpio (LED-ene)
-sudo apt-get install -y python3-evdev rclone python3-gpiozero python3-lgpio
+# Avhengigheter: musetast, Google Drive, LED, fisheye-flatting (ffmpeg), ansiktssladding (deface)
+sudo apt-get install -y python3-evdev rclone python3-gpiozero python3-lgpio ffmpeg pipx
+pipx install deface        # ansiktssladding (laster ned opencv o.l. — kan ta et par minutter)
 
 # La brukeren din lese musetasten uten sudo — LOGG UT OG INN igjen etterpå
 sudo usermod -aG input prototype1-360-kamera-gps
