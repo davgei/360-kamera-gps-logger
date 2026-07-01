@@ -101,6 +101,8 @@ kameraets WiFi. Kjør **fra repo-roten**:
 python3 -m recorder.record_session
 ```
 - Trykk på **muse-tasten** → opptak starter. Trykk igjen → opptak stopper.
+- Er kameraet ikke nåbart (rødt lys) nektes start umiddelbart — du taper ikke tid på timeout.
+  Manglende internett stopper *ikke* opptak (klippene lastes opp når nettet er tilbake).
 - Hvert klipps to `.mp4`-filer lastes ned til `clip_<tidspunkt>/` på Pi-en og lastes opp til
   `gdrive:360-footage/clip_<tidspunkt>/` — begge filene samlet i én mappe.
 - Nedlasting + opplasting skjer i bakgrunnen, så du kan starte neste klipp med en gang.

@@ -129,6 +129,7 @@ class ReadinessMonitor(threading.Thread):
         self.interval = interval
         self.battery_low = battery_low
         self.ready = False
+        self.camera_ok = False
         self.battery: float | None = None
         self._stop = threading.Event()
 
@@ -141,6 +142,7 @@ class ReadinessMonitor(threading.Thread):
             ready = inet and cam
             low = bool(ready and battery is not None and battery < self.battery_low)
             self.ready = ready
+            self.camera_ok = cam
             self.battery = battery
             self.leds.set_ready(ready, battery_low=low)
 

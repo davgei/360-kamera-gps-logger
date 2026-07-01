@@ -130,6 +130,7 @@ def main() -> int:
 
     leds = StatusLeds(enabled=not args.no_leds)
     monitor = ReadinessMonitor(leds, camera)
+    monitor.camera_ok = True  # camera was just verified reachable via get_info()
     monitor.start()
 
     staging = Path(args.staging).expanduser()
@@ -153,6 +154,9 @@ def main() -> int:
         for _ in wait_for_presses(device, key_code):
             try:
                 if not recording:
+                    if not monitor.camera_ok:
+                        print("Camera not reachable — can't start recording. (Red light: check the camera WiFi.)")
+                        continue
                     camera.set_video_mode()
                     camera.start_capture()
                     recording = True
