@@ -27,7 +27,8 @@ rclone lsd gdrive:
 
 ```bash
 git pull                              # hent siste kode fra GitHub
-python3 -m recorder.record_session    # muse-trykk = start/stopp opptak, Ctrl+C = avslutt
+python3 -m recorder.photo_session     # FOTO (gjeldende): muse-klikk = ett bilde, Ctrl+C = avslutt
+python3 -m recorder.record_session    # VIDEO (eldre): muse-trykk = start/stopp opptak
 ```
 
 Hvert klipp lastes opp til `gdrive:360-footage/clip_<tidspunkt>/` (begge `.mp4`-filene samlet).

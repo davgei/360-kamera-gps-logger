@@ -92,7 +92,25 @@ I `rclone config`:
 Test: `rclone lsd gdrive:` skal liste mappene i Drive. Tokenet lagres i
 `~/.config/rclone/rclone.conf` på Pi-en — aldri i repoet.
 
-## Kjør hele opptaksøkta — `record_session.py`
+## Ta bilder — `photo_session.py`  (gjeldende retning)
+
+Foto-varianten: hvert **museklikk tar ett stillbilde** (ONE X dual-fisheye JPEG), som lastes ned
+og opp til Google Drive. Kjør fra repo-roten:
+
+```bash
+python3 -m recorder.photo_session
+```
+- Klikk musetasten → ett bilde (`takePicture`, asynkron) → lastes ned til `photo_<tidspunkt>/` og
+  opp til `gdrive:360-photos/photo_<tidspunkt>/`.
+- Blå LED lyser mens bildet tas; rød/grønn = klar-status; kameraet må være nåbart (ellers nektes).
+- Kjører til **Ctrl+C**. Valg: `--remote`, `--remote-path`, `--staging`, `--keep-local`, `--device`, `--key`, `--no-leds`.
+
+Ansiktssladding kommer som Steg 2 (`deface` på de to 180°-fisheye-bildene), GPS-utløser i stedet
+for museklikk som Steg 3.
+
+## Kjør hele opptaksøkta (video) — `record_session.py`
+
+> Video-varianten (eldre). For gjeldende foto-retning, bruk `photo_session.py` over.
 
 Forutsetninger: `python3-evdev` + `rclone` installert, `gdrive`-remote satt opp, og Pi-en på
 kameraets WiFi. Kjør **fra repo-roten**:

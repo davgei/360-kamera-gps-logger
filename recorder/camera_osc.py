@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import shutil
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -78,6 +79,41 @@ class OneXCamera:
     def stop_capture(self) -> list[str]:
         result = self._execute("camera.stopCapture")
         return result.get("results", {}).get("fileUrls", [])
+
+    def set_image_mode(self) -> None:
+        self._execute("camera.setOptions", {"options": {"captureMode": "image"}})
+
+    def _status(self, command_id: str) -> dict:
+        data = json.dumps({"id": command_id}).encode("utf-8")
+        request = urllib.request.Request(
+            f"http://{self.host}/osc/commands/status", data=data, method="POST", headers=_HEADERS
+        )
+        with self._lock, urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def take_picture(self, poll_interval: float = 0.5, max_wait: float = 30.0) -> str:
+        """Take one still photo. takePicture is async: poll /osc/commands/status until done.
+
+        Returns the photo's fileUrl (single JPEG). Raises OscError on camera error/timeout.
+        """
+        result = self._execute("camera.takePicture")
+        if result.get("state") == "done":
+            return result.get("results", {}).get("fileUrl", "")
+        command_id = result.get("id")
+        if not command_id:
+            raise OscError("takePicture: no command id returned")
+        waited = 0.0
+        while waited < max_wait:
+            time.sleep(poll_interval)
+            waited += poll_interval
+            status = self._status(command_id)
+            state = status.get("state")
+            if state == "done":
+                return status.get("results", {}).get("fileUrl", "")
+            if state == "error":
+                error = status.get("error", {})
+                raise OscError(f"takePicture: {error.get('code', 'error')} — {error.get('message', '')}")
+        raise OscError("takePicture: timed out waiting for the photo")
 
     def download(self, url: str, dest: Path) -> None:
         request = urllib.request.Request(url, method="GET")
