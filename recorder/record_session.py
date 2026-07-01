@@ -35,6 +35,7 @@ from evdev import InputDevice, ecodes
 
 from recorder.button import find_button_device, wait_for_presses
 from recorder.camera_osc import OneXCamera, OscError
+from recorder.status_leds import ReadinessMonitor, StatusLeds
 
 
 def require_rclone(remote: str) -> None:
@@ -103,6 +104,7 @@ def main() -> int:
     parser.add_argument("--device", help="input device path, e.g. /dev/input/event4")
     parser.add_argument("--key", default="BTN_LEFT", help="button to listen for (default BTN_LEFT)")
     parser.add_argument("--keep-local", action="store_true", help="keep the local copy after upload")
+    parser.add_argument("--no-leds", action="store_true", help="run without the status LEDs")
     args = parser.parse_args()
 
     require_rclone(args.remote)
@@ -125,6 +127,10 @@ def main() -> int:
     if device is None:
         sys.exit("No button device found. Plug in the mouse, or pass --device (see: python3 recorder/button_toggle.py --list).")
     print(f"Button: {device.name!r} at {device.path}, key {args.key}")
+
+    leds = StatusLeds(enabled=not args.no_leds)
+    monitor = ReadinessMonitor(leds, camera)
+    monitor.start()
 
     staging = Path(args.staging).expanduser()
     staging.mkdir(parents=True, exist_ok=True)
@@ -151,10 +157,12 @@ def main() -> int:
                     camera.start_capture()
                     recording = True
                     start_time = datetime.datetime.now()
+                    leds.set_recording(True)
                     print("● Recording... (press again to stop)")
                 else:
                     file_urls = camera.stop_capture()
                     recording = False
+                    leds.set_recording(False)
                     clip_name = "clip_" + start_time.strftime("%Y%m%d_%H%M%S")
                     if file_urls:
                         jobs.put((clip_name, file_urls))
@@ -167,6 +175,7 @@ def main() -> int:
                 print(f"Lost camera connection ({exc.reason}). Is the Pi still on the camera WiFi?")
     except KeyboardInterrupt:
         print("\nCtrl+C — stopping.")
+        leds.set_recording(False)
         if recording:
             try:
                 file_urls = camera.stop_capture()
@@ -177,12 +186,14 @@ def main() -> int:
             except (OscError, urllib.error.URLError) as exc:
                 print(f"(could not stop the camera cleanly: {exc})")
     finally:
+        monitor.stop()
         jobs.put(None)
         print("Finishing the current upload and any queued clips — please wait. (Ctrl+C again to abandon; local files are always kept.)")
         try:
             worker.join()
         except KeyboardInterrupt:
             print("Abandoned pending work. Any downloaded files remain in the staging folder.")
+        leds.close()
     print("Done.")
     return 0
 

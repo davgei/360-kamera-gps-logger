@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -31,6 +32,8 @@ class OneXCamera:
     def __init__(self, host: str = DEFAULT_HOST, timeout: float = 15.0) -> None:
         self.host = host
         self.timeout = timeout
+        # Serialize control-plane calls; the ONE X is sensitive to overlapping requests.
+        self._lock = threading.Lock()
 
     def _execute(self, name: str, parameters: dict | None = None) -> dict:
         body: dict = {"name": name}
@@ -40,14 +43,15 @@ class OneXCamera:
         request = urllib.request.Request(
             f"http://{self.host}/osc/commands/execute", data=data, method="POST", headers=_HEADERS
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                result = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
+        with self._lock:
             try:
-                result = json.loads(exc.read().decode("utf-8"))
-            except Exception:
-                raise OscError(f"{name}: HTTP {exc.code} {exc.reason}")
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                try:
+                    result = json.loads(exc.read().decode("utf-8"))
+                except Exception:
+                    raise OscError(f"{name}: HTTP {exc.code} {exc.reason}")
         if result.get("state") == "error":
             error = result.get("error", {})
             raise OscError(f"{name}: {error.get('code', 'error')} — {error.get('message', '')}")
@@ -55,7 +59,14 @@ class OneXCamera:
 
     def get_info(self) -> dict:
         request = urllib.request.Request(f"http://{self.host}/osc/info", method="GET")
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self._lock, urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def get_state(self) -> dict:
+        request = urllib.request.Request(
+            f"http://{self.host}/osc/state", data=b"", method="POST", headers=_HEADERS
+        )
+        with self._lock, urllib.request.urlopen(request, timeout=self.timeout) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def set_video_mode(self) -> None:

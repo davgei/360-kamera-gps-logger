@@ -10,8 +10,8 @@ cd ~/360-kamera-gps-logger
 ## Engangs-oppsett på Pi-en (gjør én gang)
 
 ```bash
-# Avhengigheter: python3-evdev (les musetasten), rclone (last opp til Google Drive)
-sudo apt-get install -y python3-evdev rclone
+# Avhengigheter: python3-evdev (musetasten), rclone (Google Drive), gpiozero/lgpio (LED-ene)
+sudo apt-get install -y python3-evdev rclone python3-gpiozero python3-lgpio
 
 # La brukeren din lese musetasten uten sudo — LOGG UT OG INN igjen etterpå
 sudo usermod -aG input prototype1-360-kamera-gps
@@ -44,6 +44,8 @@ python3 recorder/probe_camera.py      # svarer kameraet? (skriver ut modell + ba
 python3 recorder/button_toggle.py     # toggler musetasten? (skriver START/STOP)
 python3 recorder/record_clip.py       # ta opp ett 5-sekunders testklipp
 rclone lsd gdrive:                    # virker Google Drive-tilkoblingen?
+python3 -m recorder.status_leds --test  # lys hver LED etter tur (sjekk kobling)
+python3 -m recorder.status_leds         # følg klar-status + batteri (grønn/rød LED)
 ```
 
 Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)

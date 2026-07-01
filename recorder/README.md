@@ -109,7 +109,38 @@ python3 -m recorder.record_session
 Valg: `--remote <navn>`, `--remote-path <mappe>`, `--staging <lokal mappe>`,
 `--keep-local` (behold lokal kopi etter opplasting), `--device /dev/input/eventX`, `--key BTN_LEFT`.
 
+## Status-LED-er
+
+Tre LED-er viser tilstanden uten skjerm. BCM GPIO-nummerering, koblet **aktiv-høy**:
+`GPIO → 330Ω → LED(+, langt ben) → LED(−) → GND`.
+
+| Farge | GPIO | Fysisk pin | Betyr |
+|-------|------|-----------|-------|
+| 🔵 Blå   | 22 | 15 | Tar opp akkurat nå |
+| 🟢 Grønn | 23 | 16 | Klar (solid) · lavt kamerabatteri (blinker) |
+| 🔴 Rød   | 24 | 18 | Ikke klar (mangler internett eller kamera) |
+
+- Opptak + klar → blå + grønn. Faller noe ut mens du tar opp → blå + rød. **Opptak stopper
+  aldri av seg selv** — LED-ene er kun varsel.
+- Kamerabatteriet leses og logges jevnlig (`[status] camera battery NN%`); under 15 %
+  **blinker den grønne**.
+- GND finnes bl.a. på fysisk pin 14 (også 6/9/20/25/30/34/39).
+
+Avhengigheter:
+```bash
+sudo apt-get install -y python3-gpiozero python3-lgpio
+```
+
+Feilsøk LED-er og klar-status uten å ta opp:
+```bash
+python3 -m recorder.status_leds --test    # lys hver LED etter tur (sjekk koblingen)
+python3 -m recorder.status_leds           # følg klar-status + batteri live
+```
+Er en LED koblet «aktiv-lav», opprett den med `LED(pin, active_high=False)` i `status_leds.py`.
+
 ## Neste steg
 
-Gjenstår: **GPS-logging** (kobles til hvert klipp), og å sette opp at økta starter automatisk
-ved boot (egen systemd-tjeneste, som `deploy/`-laget).
+- **GPS-logging** (kobles til hvert klipp) — legges inn som en «myk» klar-betingelse med en
+  grace-periode, så et kort GPS-bortfall verken blinker rødt eller stopper opptak.
+- Flere klar-betingelser: **SD-kort i kameraet** og lavt **Pi-diskplass** (batteri er alt på plass).
+- Starte økta automatisk ved boot (egen systemd-tjeneste, som `deploy/`-laget).
