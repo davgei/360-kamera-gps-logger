@@ -118,10 +118,11 @@ sudo apt-get install -y ffmpeg
 python3 recorder/dewarp.py <bilde>.jpg             # equirektangulær + flate utsnitt (yaw 0 og 180)
 python3 recorder/dewarp.py <bilde>.jpg --fov 205   # finjuster fisheye-FOV til kameraet
 python3 recorder/dewarp.py <bilde>.jpg --views 90,270 --pitch -10
-python3 recorder/dewarp.py <bilde>.jpg --proj sg --out-fov 180   # se ~hele linsen (mindre kropp)
+python3 recorder/dewarp.py <bilde>.jpg --proj flat --out-fov 100   # rektilineær (rette linjer, men kutter)
 ```
-Lager `<navn>_equirect.jpg` (helt panorama) og `<navn>_<proj>_yawNNN.jpg`. `flat` er rett men
-**kutter** vide vinkler; `sg`/`pannini`/`cylindrical` viser **~hele linsen** (litt krumning).
+Lager `<navn>_equirect.jpg` (helt panorama) og `<navn>_<proj>_yawNNN.jpg`. Standard `he`
+(halv-equirect) viser **hele ~180°-hemisfæren** per linse uten å kutte; `flat` er rett men
+**kutter** vide vinkler. Høyere `--flat-size` (standard 2880×2880) gir mer oppløsning.
 Juster `--fov` (190–210) til skjøten ser riktig ut. Når du har valgt utsnitt/format, kobles
 konverteringen inn i `photo_session` (før sladding + opplasting).
 

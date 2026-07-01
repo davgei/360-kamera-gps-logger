@@ -3,19 +3,21 @@
 
 The ONE X saves a photo as TWO fisheye circles in one JPEG. This converts it to:
   - an equirectangular panorama (the whole 360 in one flat 2:1 image), and/or
-  - one or more flat (rectilinear, "normal-looking") views aimed with a yaw angle.
+  - one or more per-lens views aimed by yaw. Default projection is half-equirect (he), which
+    shows the FULL ~180° hemisphere of each lens without cropping. A truly flat (rectilinear)
+    view looks straighter but MUST crop wide angles — use --proj flat --out-fov 100 for that.
 
 No Insta360 SDK needed (that targets iOS/Android/x86, not the Pi's ARM) — ffmpeg does it:
     sudo apt-get install -y ffmpeg
 
-    python3 recorder/dewarp.py photo.jpg                 # equirect + flat views at yaw 0 and 180
+    python3 recorder/dewarp.py photo.jpg                 # equirect + two half-equirect views (full hemisphere each)
     python3 recorder/dewarp.py photo.jpg --fov 205       # tune the input fisheye FOV per camera
-    python3 recorder/dewarp.py photo.jpg --views 90,270  # aim the flat views elsewhere
-    python3 recorder/dewarp.py photo.jpg --proj sg --out-fov 180   # see ~the whole lens (wide)
+    python3 recorder/dewarp.py photo.jpg --proj flat --out-fov 100   # rectilinear crop (straight lines, narrower)
+    python3 recorder/dewarp.py photo.jpg --views 90,270  # aim the views elsewhere
     python3 recorder/dewarp.py photo.jpg --equirect-only
 
-Outputs are written next to the input as <name>_equirect.jpg and <name>_flat_yawNNN.jpg.
-Tune --fov (try 190-210) until the seam/edges look right for your camera body.
+Outputs are written next to the input as <name>_equirect.jpg and <name>_<proj>_yawNNN.jpg.
+Tune --fov (try 190-210) until the seam/edges look right; raise --flat-size for more resolution.
 """
 
 from __future__ import annotations
@@ -39,16 +41,16 @@ def main() -> int:
     parser.add_argument("photo", help="dual-fisheye JPEG from the ONE X")
     parser.add_argument("--fov", type=float, default=200.0, help="input per-lens fisheye FOV in degrees (try 190-210)")
     parser.add_argument("--views", default="0,180", help="comma-separated yaw angles for flat views (deg)")
-    parser.add_argument("--out-fov", type=float, default=100.0, help="output field of view for flat views (deg)")
+    parser.add_argument("--out-fov", type=float, default=180.0, help="output field of view per view (deg); ~180 for full hemisphere, ~100 for a flat/rectilinear crop")
     parser.add_argument("--pitch", type=float, default=0.0, help="tilt for flat views (deg; negative looks down)")
-    parser.add_argument("--flat-size", default="1600x1600", help="flat view size WxH")
+    parser.add_argument("--flat-size", default="2880x2880", help="per-view output size WxH")
     parser.add_argument("--pano-size", default="5760x2880", help="equirectangular size WxH")
     parser.add_argument("--equirect-only", action="store_true", help="only produce the equirectangular image")
     parser.add_argument("--flat-only", action="store_true", help="only produce the flat views")
     parser.add_argument("--rotate", default="cw,ccw", help="rotation per flat view: none|cw|ccw|180, comma-separated (matches --views)")
     parser.add_argument(
-        "--proj", default="flat", choices=["flat", "sg", "pannini", "cylindrical", "fisheye"],
-        help="view projection: flat=rectilinear (crops wide angles); sg/pannini/cylindrical show ~the whole lens; fisheye=raw",
+        "--proj", default="he", choices=["he", "sg", "pannini", "cylindrical", "flat", "fisheye"],
+        help="view projection: he=half-equirect (full ~180° hemisphere per lens, default); sg/pannini/cylindrical=wide; flat=rectilinear (crops); fisheye=raw",
     )
     args = parser.parse_args()
 
