@@ -163,6 +163,9 @@ class ReadinessMonitor(threading.Thread):
 
 
 def _test_leds(leds: StatusLeds) -> None:
+    for led in (leds.blue, leds.green, leds.red):
+        if led is not None:
+            led.off()
     for name, led in (("blue (GPIO22)", leds.blue), ("green (GPIO23)", leds.green), ("red (GPIO24)", leds.red)):
         if led is None:
             print(f"{name}: no GPIO — skipped")
