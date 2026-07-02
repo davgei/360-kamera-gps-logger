@@ -95,19 +95,18 @@ under åpen himmel kan ta 30 s–et par minutter; til da står posisjonen tom (`
 
 ### GPS-utløser — tørrkjøring (uten kamera)
 
-Tester utløser-logikken på ekte GPS: viser avstand til nærmeste hentested hvert sekund, og
-lagrer koordinaten der et bilde *ville* blitt tatt (nærmeste passering) til fil.
+Tester utløser-logikken på ekte GPS og lagrer koordinaten der et bilde *ville* blitt tatt til fil.
 
 ```bash
-# Modus «hentested» (standard): utløs ved nærmeste passering av et hentested
-python3 -m recorder.trigger_preview                     # mål = testkoordinaten 59.927870,10.825903
-python3 -m recorder.trigger_preview --target 59.9279,10.8259
-python3 -m recorder.trigger_preview --gate-m 25         # større slingringsmonn hvis du ikke kommer helt inntil
-python3 -m recorder.trigger_preview --targets-csv ~/hentesteder_001.csv   # bruk ekte hentesteder
+# Modus «streetview» (STANDARD): bilde med jevne meter-mellomrom langs ruta, som Google-bilen
+python3 -m recorder.trigger_preview                     # bilde hver 3. meter (standard)
+python3 -m recorder.trigger_preview --interval-m 5      # annen avstand
 
-# Modus «streetview»: bilde med jevne meter-mellomrom langs ruta (som Google-bilen)
-python3 -m recorder.trigger_preview --mode streetview                # bilde hver 10. meter
-python3 -m recorder.trigger_preview --mode streetview --interval-m 15
+# Modus «hentested»: utløs ved nærmeste passering av et hentested
+python3 -m recorder.trigger_preview --mode hentested                 # mål = testkoordinaten 59.927870,10.825903
+python3 -m recorder.trigger_preview --mode hentested --target 59.9279,10.8259
+python3 -m recorder.trigger_preview --mode hentested --gate-m 25     # større slingringsmonn
+python3 -m recorder.trigger_preview --mode hentested --targets-csv ~/hentesteder_001.csv
 ```
 
 **hentested:** gå/kjør mot målet — når avstanden slutter å synke, «tas» et simulert bilde på

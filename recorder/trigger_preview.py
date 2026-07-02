@@ -9,20 +9,19 @@ Ingen kamera er involvert. Dette bekrefter bare at utløser-logikken treffer rik
 sted på ekte GPS-data, før vi kobler den til photo_session.
 
 To moduser:
-  --mode hentested   (standard) utløs ved NÆRMESTE PASSERING av et hentested. Vi trigger ikke
-                     på «0 m» (som aldri nås), men når avstanden slutter å synke og begynner å
-                     øke igjen, innenfor en port (--gate-m). (Når det ekte kameraet kobles inn,
-                     trykker vi ~1.8 s FØR dette punktet så lukkeren fyrer akkurat her.)
-  --mode streetview  ta bilde med jevne METER-mellomrom langs ruta, som Google Street View-bilen
-                     (--interval-m, standard 10 m), uavhengig av hvor hentestedene er.
+  --mode streetview  (standard) ta bilde med jevne METER-mellomrom langs ruta, som Google Street
+                     View-bilen (--interval-m, standard 3 m), uavhengig av hvor hentestedene er.
+  --mode hentested   utløs ved NÆRMESTE PASSERING av et hentested. Vi trigger ikke på «0 m» (som
+                     aldri nås), men når avstanden slutter å synke og begynner å øke igjen, innenfor
+                     en port (--gate-m). (Når det ekte kameraet kobles inn, trykker vi ~1.8 s FØR
+                     dette punktet så lukkeren fyrer akkurat her.)
 
 Kjør:
-    python3 -m recorder.trigger_preview                          # hentested: testkoordinaten
-    python3 -m recorder.trigger_preview --target 59.9279,10.8259
-    python3 -m recorder.trigger_preview --gate-m 25              # større slingringsmonn
-    python3 -m recorder.trigger_preview --targets-csv hentesteder_001.csv
-    python3 -m recorder.trigger_preview --mode streetview                 # bilde hver 10. meter
-    python3 -m recorder.trigger_preview --mode streetview --interval-m 15
+    python3 -m recorder.trigger_preview                          # streetview: bilde hver 3. meter
+    python3 -m recorder.trigger_preview --interval-m 5           # streetview, annen avstand
+    python3 -m recorder.trigger_preview --mode hentested                 # nærmeste passering (testkoordinaten)
+    python3 -m recorder.trigger_preview --mode hentested --target 59.9279,10.8259
+    python3 -m recorder.trigger_preview --mode hentested --targets-csv hentesteder_001.csv
 """
 
 from __future__ import annotations
@@ -337,14 +336,14 @@ def run(args: argparse.Namespace, trigger: "ApproachTrigger | IntervalTrigger", 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tørrkjøring av GPS-utløseren (uten kamera)")
-    parser.add_argument("--mode", choices=["hentested", "streetview"], default="hentested",
-                        help="hentested = utløs ved nærmeste passering av et mål; streetview = bilde med jevne meter-mellomrom")
+    parser.add_argument("--mode", choices=["hentested", "streetview"], default="streetview",
+                        help="streetview (standard) = bilde med jevne meter-mellomrom; hentested = utløs ved nærmeste passering av et mål")
     parser.add_argument("--port", default=DEFAULT_PORT, help="serieport (standard /dev/serial0)")
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="baudrate (standard 115200)")
     parser.add_argument("--target", default=None, help='hentested: ett mål som "lat,lon" (standard testkoordinaten)')
     parser.add_argument("--targets-csv", type=Path, default=None, help="hentested: hentesteder-CSV (semikolon; Breddegrad/Lengdegrad)")
     parser.add_argument("--gate-m", type=float, default=DEFAULT_GATE_M, help="hentested: maks avstand for å regne en passering (m)")
-    parser.add_argument("--interval-m", type=float, default=10.0, help="streetview: meter mellom hvert bilde (standard 10)")
+    parser.add_argument("--interval-m", type=float, default=3.0, help="streetview: meter mellom hvert bilde (standard 3)")
     parser.add_argument("--tick", type=float, default=1.0, help="sekunder mellom hver oppdatering/logglinje")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help=f"mappe for logger (standard {DEFAULT_OUT_DIR})")
     return parser.parse_args()
