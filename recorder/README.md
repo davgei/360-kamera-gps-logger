@@ -187,9 +187,56 @@ python3 -m recorder.status_leds           # følg klar-status + batteri live
 ```
 Er en LED koblet «aktiv-lav», opprett den med `LED(pin, active_high=False)` i `status_leds.py`.
 
+## GPS — `gps_logger.py`  (Steg 3, oppkobling)
+
+GPS-modulen er en **TBS M10Q** (u-blox M10, GPS + GLONASS + Galileo + BeiDou). Den kobles
+til Pi-ens UART med **3.3V-logikk** — ingen nivåomformer trengs. Ledningene krysses (modulens
+Tx går til Pi-ens Rx):
+
+| Modul | Pi (fysisk pin) | Merknad |
+|-------|-----------------|---------|
+| VCC   | 5V (pin 2 el. 4) | modulen har egen regulator (5V → 3.3V); **ikke** koble VCC til en GPIO-pin |
+| GND   | GND (pin 6)      | felles jord |
+| Tx    | RXD/GPIO15 (pin 10) | modulens Tx → Pi-ens RX |
+| Rx    | TXD/GPIO14 (pin 8)  | modulens Rx → Pi-ens TX |
+| SCL   | *ikke koblet*    | I2C til det innebygde kompasset (QMC5883) — ikke nødvendig for posisjon |
+| SDA   | *ikke koblet*    | — |
+
+> ⚠️ Legg aldri 5V på en GPIO-/signalpin — Pi-ens GPIO tåler bare 3.3V. VCC går **kun** til
+> en 5V-pin. Signalpinnene (Tx/Rx) er 3.3V og trygge direkte.
+
+Skru på UART-en på Pi-en (engangs; krever omstart):
+
+```bash
+sudo raspi-config nonint do_serial_hw 0       # seriell maskinvare PÅ
+sudo raspi-config nonint do_serial_cons 1     # seriell innloggingskonsoll AV (den spammer ellers porten)
+printf 'enable_uart=1\ndtoverlay=disable-bt\n' | sudo tee -a /boot/firmware/config.txt
+sudo systemctl disable hciuart                # gir den stabile UART-en (PL011) til GPIO14/15 (Bluetooth av)
+sudo usermod -aG dialout prototype1-360-kamera-gps   # les serieporten uten sudo — logg ut/inn
+sudo reboot
+```
+
+`dtoverlay=disable-bt` flytter den robuste PL011-UART-en til GPIO14/15 (den er ellers opptatt av
+Bluetooth). Uten den havner GPS-en på mini-UART-en, som kan miste tegn ved høy baud.
+
+Sjekk kobling og logg:
+
+```bash
+cat /dev/serial0                        # rå NMEA — $GNGGA/$GNRMC = riktig kobling + baud
+python3 -m recorder.gps_logger          # logg bredde/lengdegrad hvert sekund (/dev/serial0 @ 115200)
+python3 -m recorder.gps_logger --raw    # vis også rå NMEA-linjer (feilsøk)
+python3 -m recorder.gps_logger --baud 9600   # hvis 115200 gir tomt (u-blox fabrikkstandard)
+```
+
+Modulen sender som standard **115200 baud** og fler-konstellasjons-setninger med talker-ID `GN`
+(`$GNGGA`, `$GNRMC`) — ikke `GP`. Loggeren filtrerer på setnings-*type* (GGA/RMC), så den fanger
+begge. Hver sekund skrives en statuslinje til skjerm og en rad til
+`~/360-gps-logs/gps_log_<tidspunkt>.csv`. Første fix ute kan ta 30 s–et par minutter; til da står
+posisjonen tom. Krever `python3-serial` (`sudo apt-get install -y python3-serial`).
+
 ## Neste steg
 
-- **GPS-logging** (kobles til hvert klipp) — legges inn som en «myk» klar-betingelse med en
-  grace-periode, så et kort GPS-bortfall verken blinker rødt eller stopper opptak.
-- Flere klar-betingelser: **SD-kort i kameraet** og lavt **Pi-diskplass** (batteri er alt på plass).
-- Starte økta automatisk ved boot (egen systemd-tjeneste, som `deploy/`-laget).
+- **Klynge (5 m) + utløser**: gruppere hentesteder offline (5 m single-linkage), og bytte
+  musklikket i `photo_session` med en GPS-utløser (nærmeste passering + 10 m før/på/etter).
+- GPS som en «myk» klar-betingelse (grace-periode) og evt. tid/kurs inn i bilde-navnet.
+- Flere klar-betingelser: **SD-kort i kameraet** og lav **Pi-diskplass** (batteri er alt på plass).
