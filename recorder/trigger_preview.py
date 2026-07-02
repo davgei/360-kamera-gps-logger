@@ -8,16 +8,21 @@ kan godkjennes i ettertid (selv om skjermen går tom for strøm).
 Ingen kamera er involvert. Dette bekrefter bare at utløser-logikken treffer riktig
 sted på ekte GPS-data, før vi kobler den til photo_session.
 
-Logikk: vi trigger ikke på «0 m» (som aldri nås), men på NÆRMESTE PASSERING — når
-avstanden slutter å synke og begynner å øke igjen, innenfor en port (--gate-m).
-Koordinaten som lagres er selve nærmeste-passering-punktet. (Når det ekte kameraet
-kobles inn, trykker vi ~1.8 s FØR dette punktet så lukkeren fyrer akkurat her.)
+To moduser:
+  --mode hentested   (standard) utløs ved NÆRMESTE PASSERING av et hentested. Vi trigger ikke
+                     på «0 m» (som aldri nås), men når avstanden slutter å synke og begynner å
+                     øke igjen, innenfor en port (--gate-m). (Når det ekte kameraet kobles inn,
+                     trykker vi ~1.8 s FØR dette punktet så lukkeren fyrer akkurat her.)
+  --mode streetview  ta bilde med jevne METER-mellomrom langs ruta, som Google Street View-bilen
+                     (--interval-m, standard 10 m), uavhengig av hvor hentestedene er.
 
 Kjør:
-    python3 -m recorder.trigger_preview                          # mål = testkoordinaten
+    python3 -m recorder.trigger_preview                          # hentested: testkoordinaten
     python3 -m recorder.trigger_preview --target 59.9279,10.8259
     python3 -m recorder.trigger_preview --gate-m 25              # større slingringsmonn
     python3 -m recorder.trigger_preview --targets-csv hentesteder_001.csv
+    python3 -m recorder.trigger_preview --mode streetview                 # bilde hver 10. meter
+    python3 -m recorder.trigger_preview --mode streetview --interval-m 15
 """
 
 from __future__ import annotations
@@ -60,6 +65,14 @@ class Snapshot:
     lon: float
     speed_mps: float | None
     course_deg: float | None
+
+
+@dataclass
+class PhotoEvent:
+    snap: Snapshot
+    reason: str            # "hentested" eller "streetview"
+    distance_m: float      # hentested: avstand til målet; streetview: distanse siden forrige bilde
+    target: Target | None = None
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -116,7 +129,7 @@ class ApproachTrigger:
         self.last_dist: float | None = None
         self.trend = "utenfor"
 
-    def update(self, fix: GpsFix, stamp: str) -> tuple[Snapshot, Target, float] | None:
+    def update(self, fix: GpsFix, stamp: str) -> PhotoEvent | None:
         target, dist = nearest(self.targets, fix.latitude, fix.longitude)
         self.last_target, self.last_dist = target, dist
         snap = Snapshot(stamp, fix.latitude, fix.longitude, fix.speed_mps, fix.course_deg)
@@ -124,7 +137,7 @@ class ApproachTrigger:
         if dist > self.gate_m:
             event = None
             if self.engaged is not None and not self.fired and self.min_snap is not None:
-                event = (self.min_snap, self.engaged, self.min_dist)  # forlot porten — lagre nærmeste vi kom
+                event = PhotoEvent(self.min_snap, "hentested", self.min_dist, self.engaged)  # forlot porten
             self.engaged, self.min_dist, self.min_snap, self.fired = None, float("inf"), None, False
             self.trend = "utenfor"
             return event
@@ -139,8 +152,49 @@ class ApproachTrigger:
         if not self.fired and dist > self.min_dist + self.hysteresis_m:
             self.fired = True
             self.trend = "PASSERT"
-            return (self.min_snap, self.engaged, self.min_dist)
+            return PhotoEvent(self.min_snap, "hentested", self.min_dist, self.engaged)
         self.trend = "skutt" if self.fired else "nær"
+        return None
+
+
+class IntervalTrigger:
+    """Street View-modus: tar bilde med jevne meter-mellomrom langs ruta. Akkumulerer kjørt
+    distanse (haversine mellom fikser) og utløser hver `interval_m`. GPS-drift i ro filtreres
+    bort med en fart-/steg-terskel."""
+
+    def __init__(self, interval_m: float, min_move_mps: float = 0.5,
+                 jitter_floor_m: float = 1.5, teleport_ceiling_m: float = 100.0) -> None:
+        self.interval_m = interval_m
+        self.min_move_mps = min_move_mps
+        self.jitter_floor_m = jitter_floor_m
+        self.teleport_ceiling_m = teleport_ceiling_m
+        self.prev_lat: float | None = None
+        self.prev_lon: float | None = None
+        self.accum = 0.0                 # distanse siden forrige bilde
+        self.total = 0.0                 # total kjørt distanse
+        self._dist_at_last_photo = 0.0
+
+    def update(self, fix: GpsFix, stamp: str) -> PhotoEvent | None:
+        snap = Snapshot(stamp, fix.latitude, fix.longitude, fix.speed_mps, fix.course_deg)
+        if self.prev_lat is None:
+            self.prev_lat, self.prev_lon = fix.latitude, fix.longitude
+            return PhotoEvent(snap, "streetview", 0.0, None)  # første bilde ved start, som SV-bilen
+
+        step = haversine_m(self.prev_lat, self.prev_lon, fix.latitude, fix.longitude)
+        self.prev_lat, self.prev_lon = fix.latitude, fix.longitude
+        moving = (
+            (fix.speed_mps is not None and fix.speed_mps >= self.min_move_mps)
+            or (fix.speed_mps is None and step >= self.jitter_floor_m)
+        )
+        if 0 < step <= self.teleport_ceiling_m and moving:
+            self.accum += step
+            self.total += step
+
+        if self.accum >= self.interval_m:
+            self.accum -= self.interval_m
+            since = self.total - self._dist_at_last_photo
+            self._dist_at_last_photo = self.total
+            return PhotoEvent(snap, "streetview", since, None)
         return None
 
 
@@ -187,7 +241,7 @@ def _fmt(value: float | None, decimals: int) -> str:
     return "" if value is None else f"{value:.{decimals}f}"
 
 
-def run(args: argparse.Namespace, targets: list[Target]) -> None:
+def run(args: argparse.Namespace, trigger: "ApproachTrigger | IntervalTrigger", targets: list[Target]) -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now(timezone.utc)
     track_path = args.out_dir / f"track_{started.strftime('%Y%m%dT%H%M%S')}.csv"
@@ -201,11 +255,14 @@ def run(args: argparse.Namespace, targets: list[Target]) -> None:
     track_f.flush()
     trig_f.flush()
 
-    print(f"Spor:                       {track_path}")
+    streetview = args.mode == "streetview"
+    print(f"Spor:                        {track_path}")
     print(f"Utløsere (simulerte bilder): {trig_path}")
-    print(f"{len(targets)} mål · port {args.gate_m:.0f} m · Ctrl+C for å stoppe.\n")
+    if streetview:
+        print(f"Modus: streetview · bilde hver {args.interval_m:.0f} m · Ctrl+C for å stoppe.\n")
+    else:
+        print(f"Modus: hentested · {len(targets)} mål · port {args.gate_m:.0f} m · Ctrl+C for å stoppe.\n")
 
-    trigger = ApproachTrigger(targets, args.gate_m)
     fix = GpsFix()
     stream: "serial.Serial | None" = None
     next_tick = time.monotonic()
@@ -234,7 +291,7 @@ def run(args: argparse.Namespace, targets: list[Target]) -> None:
         now = time.monotonic()
         if now < next_tick:
             continue
-        next_tick = max(next_tick + args.interval, now)
+        next_tick = max(next_tick + args.tick, now)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
         if not fix.has_position():
@@ -242,45 +299,67 @@ def run(args: argparse.Namespace, targets: list[Target]) -> None:
             continue
 
         event = trigger.update(fix, stamp)
-        target, dist = trigger.last_target, trigger.last_dist
-        track_w.writerow([stamp, f"{fix.latitude:.7f}", f"{fix.longitude:.7f}", fix.fix_quality,
-                          fix.satellites or "", _fmt(fix.speed_mps, 2), _fmt(fix.course_deg, 1),
-                          target.label, f"{dist:.1f}"])
+
+        if streetview:
+            track_w.writerow([stamp, f"{fix.latitude:.7f}", f"{fix.longitude:.7f}", fix.fix_quality,
+                              fix.satellites or "", _fmt(fix.speed_mps, 2), _fmt(fix.course_deg, 1), "", ""])
+        else:
+            track_w.writerow([stamp, f"{fix.latitude:.7f}", f"{fix.longitude:.7f}", fix.fix_quality,
+                              fix.satellites or "", _fmt(fix.speed_mps, 2), _fmt(fix.course_deg, 1),
+                              trigger.last_target.label, f"{trigger.last_dist:.1f}"])
         track_f.flush()
 
         if event is not None:
-            snap, tgt, min_dist = event
             photos += 1
-            trig_w.writerow([snap.stamp, f"{snap.lat:.7f}", f"{snap.lon:.7f}", f"{min_dist:.1f}",
-                             f"{tgt.lat:.7f}", f"{tgt.lon:.7f}", tgt.label,
-                             _fmt(snap.speed_mps, 2), _fmt(snap.course_deg, 1)])
+            tgt = event.target
+            trig_w.writerow([event.snap.stamp, f"{event.snap.lat:.7f}", f"{event.snap.lon:.7f}",
+                             f"{event.distance_m:.1f}",
+                             f"{tgt.lat:.7f}" if tgt else "", f"{tgt.lon:.7f}" if tgt else "",
+                             tgt.label if tgt else event.reason,
+                             _fmt(event.snap.speed_mps, 2), _fmt(event.snap.course_deg, 1)])
             trig_f.flush()
-            print(f"    📸 (simulert) bilde: {snap.lat:.6f}, {snap.lon:.6f}  —  {min_dist:.1f} m fra «{tgt.label[:30]}»  [lagret]")
+            if tgt is not None:
+                print(f"    📸 (simulert) bilde: {event.snap.lat:.6f}, {event.snap.lon:.6f}  —  {event.distance_m:.1f} m fra «{tgt.label[:30]}»  [lagret]")
+            else:
+                print(f"    📸 (simulert) bilde: {event.snap.lat:.6f}, {event.snap.lon:.6f}  —  etter {event.distance_m:.0f} m  [lagret]")
 
-        ttca = time_to_closest(fix, target, dist)
-        ttca_s = f"{ttca:.1f}s" if ttca is not None else "—"
         speed_s = f"{fix.speed_mps:.1f} m/s" if fix.speed_mps is not None else "?"
-        print(f"[{stamp}] {fix.latitude:.6f},{fix.longitude:.6f} | {target.label[:22]:22} {dist:6.1f} m | "
-              f"{trigger.trend:11} | fart {speed_s:>8} | t→nærmest {ttca_s:>5} | bilder={photos}")
+        if streetview:
+            to_next = max(0.0, args.interval_m - trigger.accum)
+            print(f"[{stamp}] {fix.latitude:.6f},{fix.longitude:.6f} | kjørt {trigger.total:6.0f} m | "
+                  f"neste om {to_next:4.0f} m | fart {speed_s:>8} | bilder={photos}")
+        else:
+            ttca = time_to_closest(fix, trigger.last_target, trigger.last_dist)
+            ttca_s = f"{ttca:.1f}s" if ttca is not None else "—"
+            print(f"[{stamp}] {fix.latitude:.6f},{fix.longitude:.6f} | {trigger.last_target.label[:22]:22} "
+                  f"{trigger.last_dist:6.1f} m | {trigger.trend:11} | fart {speed_s:>8} | t→nærmest {ttca_s:>5} | bilder={photos}")
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tørrkjøring av GPS-utløseren (uten kamera)")
+    parser.add_argument("--mode", choices=["hentested", "streetview"], default="hentested",
+                        help="hentested = utløs ved nærmeste passering av et mål; streetview = bilde med jevne meter-mellomrom")
     parser.add_argument("--port", default=DEFAULT_PORT, help="serieport (standard /dev/serial0)")
     parser.add_argument("--baud", type=int, default=DEFAULT_BAUD, help="baudrate (standard 115200)")
-    parser.add_argument("--target", default=None, help='ett mål som "lat,lon" (standard testkoordinaten)')
-    parser.add_argument("--targets-csv", type=Path, default=None, help="hentesteder-CSV (semikolon; Breddegrad/Lengdegrad)")
-    parser.add_argument("--gate-m", type=float, default=DEFAULT_GATE_M, help="port: maks avstand for å regne en passering (m)")
-    parser.add_argument("--interval", type=float, default=1.0, help="sekunder mellom hver oppdatering")
+    parser.add_argument("--target", default=None, help='hentested: ett mål som "lat,lon" (standard testkoordinaten)')
+    parser.add_argument("--targets-csv", type=Path, default=None, help="hentested: hentesteder-CSV (semikolon; Breddegrad/Lengdegrad)")
+    parser.add_argument("--gate-m", type=float, default=DEFAULT_GATE_M, help="hentested: maks avstand for å regne en passering (m)")
+    parser.add_argument("--interval-m", type=float, default=10.0, help="streetview: meter mellom hvert bilde (standard 10)")
+    parser.add_argument("--tick", type=float, default=1.0, help="sekunder mellom hver oppdatering/logglinje")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help=f"mappe for logger (standard {DEFAULT_OUT_DIR})")
     return parser.parse_args()
 
 
 def main() -> int:
     args = _parse_args()
-    targets = load_targets(args)
+    if args.mode == "streetview":
+        trigger: "ApproachTrigger | IntervalTrigger" = IntervalTrigger(args.interval_m)
+        targets: list[Target] = []
+    else:
+        targets = load_targets(args)
+        trigger = ApproachTrigger(targets, args.gate_m)
     try:
-        run(args, targets)
+        run(args, trigger, targets)
     except KeyboardInterrupt:
         print("\nStopper ...")
     return 0
