@@ -63,6 +63,8 @@ sudo raspi-config nonint do_wifi_country NO   # lås opp 5 GHz på Pi-en, prøv 
 ```bash
 sudo bash deploy/bootstrap.sh                 # engangs: installerer + slår på boot-tjenestene
 journalctl -u 360logger-boot.service -b       # se loggen for boot-oppdateringen
+journalctl -u 360logger-photo.service -b -f   # følg den auto-startede foto-øktas logg
+sudo systemctl stop 360logger-photo           # stopp auto-økta (for å kjøre photo_session manuelt)
 ```
 
 > Merk: kjør opptak og `rclone` som **din egen bruker (uten `sudo`)**. Med `sudo` leter rclone

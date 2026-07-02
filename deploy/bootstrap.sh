@@ -74,15 +74,18 @@ else
   log "(or place it in deploy/teamviewer.token)"
 fi
 
+log "Adding $REPO_USER to gpio + input groups (LEDs + mouse button)"
+usermod -aG gpio,input "$REPO_USER" || true
+
 log "Installing systemd services"
-for unit in 360logger-boot 360logger-app 360logger-upload; do
+for unit in 360logger-boot 360logger-app 360logger-upload 360logger-photo; do
   sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
     "$DEPLOY_DIR/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
 done
 
 chmod +x "$DEPLOY_DIR"/*.sh
 systemctl daemon-reload
-systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service
+systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service 360logger-photo.service
 
 log "Done. On every boot the Pi now pulls the latest code, keeps TeamViewer"
 log "online, and (re)starts the logger app from deploy/app.env."

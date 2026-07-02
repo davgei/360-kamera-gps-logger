@@ -2,14 +2,12 @@
 """Status LEDs for the recorder, plus a standalone readiness check for debugging.
 
 Three LEDs, BCM GPIO numbering, wired active-high (GPIO -> 330Ω -> LED+ -> LED- -> GND):
-    blue  (GPIO 22) : recording in progress
-    green (GPIO 23) : READY   — solid = ready; BLINKING = ready but camera battery low
-    red   (GPIO 24) : NOT ready — internet or camera missing
+    blue  (GPIO 22) : internet connection up (on = online)
+    green (GPIO 23) : camera ready (solid); BLINKING = camera ready but battery low
+    red   (GPIO 24) : camera NOT ready (not reachable)
 
-blue/green/red are independent: recording + ready -> blue + green; recording while
-something drops -> blue + red. Readiness is only an INDICATOR — it never starts or stops
-recording (the button does), so losing a signal never stops a take. (A grace period for
-soft conditions like GPS, added later, will keep a brief dropout from flickering the light.)
+Blue (internet) is independent of green/red (camera): e.g. online but no camera -> blue + red.
+The LEDs are only INDICATORS — they never start or stop recording.
 
 Standalone debug modes:
 
@@ -56,8 +54,8 @@ def read_camera(camera: OneXCamera) -> tuple[bool, float | None]:
 
 class StatusLeds:
     def __init__(self, enabled: bool = True) -> None:
-        self._recording = False
-        self._ready = False
+        self._internet = False
+        self._camera_ok = False
         self._battery_low = False
         self._green_mode: str | None = None
         self.blue = self.green = self.red = None
@@ -80,7 +78,7 @@ class StatusLeds:
             led.on() if on else led.off()
 
     def _apply_green(self) -> None:
-        if not self._ready:
+        if not self._camera_ok:
             mode = "off"
         elif self._battery_low:
             mode = "blink"
@@ -99,16 +97,17 @@ class StatusLeds:
             self.green.blink(on_time=0.4, off_time=0.4)
 
     def _refresh(self) -> None:
-        self._set(self.blue, self._recording)
-        self._set(self.red, not self._ready)
+        self._set(self.blue, self._internet)
+        self._set(self.red, not self._camera_ok)
         self._apply_green()
 
     def set_recording(self, recording: bool) -> None:
-        self._recording = recording
-        self._refresh()
+        # Blue now shows internet status; recording is no longer shown on an LED.
+        return
 
-    def set_ready(self, ready: bool, battery_low: bool = False) -> None:
-        self._ready = ready
+    def set_status(self, internet: bool, camera_ok: bool, battery_low: bool = False) -> None:
+        self._internet = internet
+        self._camera_ok = camera_ok
         self._battery_low = battery_low
         self._refresh()
 
@@ -141,11 +140,11 @@ class ReadinessMonitor(threading.Thread):
             inet = internet_ok()
             cam, battery = read_camera(self.camera)
             ready = inet and cam
-            low = bool(ready and battery is not None and battery < self.battery_low)
+            low = bool(cam and battery is not None and battery < self.battery_low)
             self.ready = ready
             self.camera_ok = cam
             self.battery = battery
-            self.leds.set_ready(ready, battery_low=low)
+            self.leds.set_status(inet, cam, battery_low=low)
 
             if cam != last_cam:
                 print(f"[status] camera {'found' if cam else 'not reachable'} at {self.camera.host}")
@@ -194,15 +193,15 @@ def main() -> int:
         return 0
 
     camera = OneXCamera(args.host)
-    print("green = ready · blinking green = battery low · red = not ready. Ctrl+C to quit.\n")
+    print("blue = internet · green = camera ready (blinks = battery low) · red = camera not ready. Ctrl+C to quit.\n")
     last = None
     try:
         while True:
             inet = internet_ok()
             cam, battery = read_camera(camera)
             ready = inet and cam
-            low = bool(ready and battery is not None and battery < BATTERY_LOW)
-            leds.set_ready(ready, battery_low=low)
+            low = bool(cam and battery is not None and battery < BATTERY_LOW)
+            leds.set_status(inet, cam, battery_low=low)
             bucket = None if battery is None else round(battery * 100 / 5) * 5
             if (inet, cam, bucket) != last:
                 batt = f"{int(battery * 100)}%" if battery is not None else "?"
