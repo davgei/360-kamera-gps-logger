@@ -115,6 +115,20 @@ ro teller ikke — GPS-drift filtreres bort). Begge lagrer én rad per bilde i
 `~/360-gps-logs/triggers_<tidspunkt>.csv` (tid, koordinat, avstand) og hele sporet i
 `track_<tidspunkt>.csv` — så testen kan verifiseres selv om skjermen slås av.
 
+### Kjøre-opptak (video + GPS) — `drive_session`
+
+Filmer sammenhengende med kameraet og logger GPS samtidig, på samme klokke, så bildene kan
+hentes ut hver 3. meter i etterkant på PC (Street View-stil). Krever kamera-WiFi + GPS koblet til.
+
+```bash
+python3 -m recorder.drive_session          # start opptak + GPS-logg; Ctrl+C stopper + laster ned video
+python3 -m recorder.drive_session --no-download   # ikke last ned nå (hent fra SD-kortet senere)
+```
+
+Lagres i `~/360-drives/drive_<tidspunkt>/`: `session.json` (synk-tid), `gps_track.csv`, og
+videofilene fra kameraet. Kopier hele mappa til PC-en (scp/USB) — der kjører selve uttrekket
+(video → bilde per 3 m → flat → sladd), som bygges videre i `streetview_light`.
+
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 
 ```bash
