@@ -58,6 +58,9 @@ _FIX_LABELS: dict[int, str] = {
 CSV_COLUMNS: tuple[str, ...] = ("timestamp", "lat", "lon", "fix_quality", "satellites", "altitude_m")
 
 
+_KNOTS_TO_MPS = 0.514444
+
+
 @dataclass
 class GpsFix:
     latitude: float | None = None
@@ -66,6 +69,8 @@ class GpsFix:
     fix_quality: int = 0
     satellites: int | None = None
     utc_time: str | None = None
+    speed_mps: float | None = None
+    course_deg: float | None = None
 
     def has_position(self) -> bool:
         return self.latitude is not None and self.longitude is not None
@@ -138,6 +143,13 @@ def update_fix(fix: GpsFix, sentence: str) -> None:
             fix.latitude = lat
             fix.longitude = lon
         fix.utc_time = fields[1] or fix.utc_time
+        if len(fields) >= 9:
+            knots = _as_float(fields[7])
+            if knots is not None:
+                fix.speed_mps = knots * _KNOTS_TO_MPS
+            course = _as_float(fields[8])
+            if course is not None:
+                fix.course_deg = course
 
 
 def _open_csv(log_dir: Path, started: datetime) -> tuple[TextIO, "csv._writer", Path]:

@@ -93,6 +93,22 @@ python3 -m recorder.gps_logger --baud 9600   # hvis 115200 gir tomt (u-blox fabr
 CSV-loggen havner i `~/360-gps-logs/gps_log_<tidspunkt>.csv` (én fil per økt). Første fix ute
 under åpen himmel kan ta 30 s–et par minutter; til da står posisjonen tom (`fix=ingen fix`).
 
+### GPS-utløser — tørrkjøring (uten kamera)
+
+Tester utløser-logikken på ekte GPS: viser avstand til nærmeste hentested hvert sekund, og
+lagrer koordinaten der et bilde *ville* blitt tatt (nærmeste passering) til fil.
+
+```bash
+python3 -m recorder.trigger_preview                     # mål = testkoordinaten 59.927870,10.825903
+python3 -m recorder.trigger_preview --target 59.9279,10.8259
+python3 -m recorder.trigger_preview --gate-m 25         # større slingringsmonn hvis du ikke kommer helt inntil
+python3 -m recorder.trigger_preview --targets-csv ~/hentesteder_001.csv   # bruk ekte hentesteder
+```
+
+Gå/kjør mot målet: når avstanden slutter å synke, «tas» et simulert bilde. Resultatet lagres i
+`~/360-gps-logs/triggers_<tidspunkt>.csv` (én rad per bilde: tid, koordinat, avstand til målet) og
+hele sporet i `track_<tidspunkt>.csv` — så testen kan verifiseres selv om skjermen slås av.
+
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 
 ```bash
