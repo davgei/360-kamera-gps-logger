@@ -196,6 +196,13 @@ python3 -m recorder.auto_record --keep-on-camera    # ikke slett fra kameraet (f
 
 **LED-er under autonomt opptak:** 🔵 blå = GPS-fix · 🟢 grønn = filmer nå · 🔴 rød = kamera ikke nåbart.
 
+Kamera-test (kun kamera, ingen GPS): kan forrige klipp lastes ned/slettes **mens** neste tar opp?
+Svaret avgjør om nedlastingen kan flyttes til bakgrunnen (mindre dekningshull per bit-grense):
+
+```bash
+python3 -m recorder.overlap_test              # A 5 s → start B → last ned+slett A under opptak → verifiser B
+```
+
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 
 Boot-tjenester (video-pipelinen): **boot** (git-pull) → **drive** (autonomt opptak) →

@@ -142,12 +142,17 @@ class OneXCamera:
 
     def download(self, url: str, dest: Path) -> None:
         request = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(request, timeout=self.timeout) as response, open(dest, "wb") as out:
-            expected = response.getheader("Content-Length")
-            shutil.copyfileobj(response, out)
-        # Verifiser at hele fila kom (viktig før vi evt. sletter originalen fra kameraet).
-        if expected is not None and dest.stat().st_size != int(expected):
-            raise OscError(f"nedlasting avkuttet: {dest.name} fikk {dest.stat().st_size}/{expected} byte")
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response, open(dest, "wb") as out:
+                expected = response.getheader("Content-Length")
+                shutil.copyfileobj(response, out)
+            # Verifiser at hele fila kom (viktig før vi evt. sletter originalen fra kameraet).
+            if expected is not None and dest.stat().st_size != int(expected):
+                raise OscError(f"nedlasting avkuttet: {dest.name} fikk {dest.stat().st_size}/{expected} byte")
+        except BaseException:
+            # Ikke etterlat en halvferdig fil — den ville ellers blitt plukket opp som ekte video.
+            dest.unlink(missing_ok=True)
+            raise
 
     def delete(self, file_urls: list[str]) -> None:
         """Delete files from the camera SD (OSC camera.delete). Only call AFTER a verified download."""
