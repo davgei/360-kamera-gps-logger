@@ -34,9 +34,20 @@ log() { echo "[bootstrap] $*"; }
 log "Repo:     $REPO_DIR"
 log "Owned by: $REPO_USER"
 
-log "Installing git, Python tooling + helpers"
+if [[ "$REPO_USER" == "root" ]]; then
+  echo "[bootstrap] ERROR: repoet eies av root. Klon som en vanlig bruker (ellers finner rclone" >&2
+  echo "            ikke Google Drive-token, og tjenestene kjører som root)." >&2
+  exit 1
+fi
+
+log "Installing git, Python tooling + recorder runtime deps"
 apt-get update
-apt-get install -y git ca-certificates curl python3 python3-pip python3-venv
+apt-get install -y git ca-certificates curl python3 python3-pip python3-venv \
+  ffmpeg rclone python3-serial python3-evdev python3-gpiozero python3-lgpio pipx
+
+log "Installing deface (face-blur) for $REPO_USER via pipx"
+sudo -u "$REPO_USER" env HOME="/home/$REPO_USER" pipx install deface || \
+  log "  deface-install feilet — installer manuelt: pipx install deface"
 
 log "Installing TeamViewer Host"
 if ! command -v teamviewer >/dev/null 2>&1; then
@@ -78,14 +89,14 @@ log "Adding $REPO_USER to gpio + input groups (LEDs + mouse button)"
 usermod -aG gpio,input "$REPO_USER" || true
 
 log "Installing systemd services"
-for unit in 360logger-boot 360logger-app 360logger-upload 360logger-photo; do
+for unit in 360logger-boot 360logger-app 360logger-upload 360logger-photo 360logger-process; do
   sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
     "$DEPLOY_DIR/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
 done
 
 chmod +x "$DEPLOY_DIR"/*.sh
 systemctl daemon-reload
-systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service 360logger-photo.service
+systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service 360logger-photo.service 360logger-process.service
 
 log "Done. On every boot the Pi now pulls the latest code, keeps TeamViewer"
 log "online, and (re)starts the logger app from deploy/app.env."

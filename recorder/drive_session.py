@@ -240,7 +240,11 @@ def run(args: argparse.Namespace) -> int:
         "camera_file_urls": file_urls,
         "camera_host": args.host,
     }
-    (session_dir / "session.json").write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Skriv atomisk (tmp → rename): kø-tjenesten regner en økt som ferdig når session.json finnes,
+    # så den må dukke opp komplett først etter at videoene er lastet ned.
+    tmp = session_dir / ".session.json.tmp"
+    tmp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(session_dir / "session.json")
 
     print(f"\nØkt lagret: {session_dir}")
     print(f"  session.json (synk) · gps_track.csv ({session['gps_rows']} rader) · {len(video_files)} videofil(er)")

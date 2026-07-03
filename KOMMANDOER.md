@@ -163,7 +163,23 @@ python3 -m recorder.process_drive --drive ~/360-drives/drive_20260703T071100 --s
 For hver ramme: hent fra videoen → flat ut (enkelt-fisheye) → sladd (deface) → `<mappe>/blurred/`.
 Standard flat 1920×1920, deface-skala 640×640. **Kalibrer `--fov`** (input-fisheye-FOV, standard 200)
 mot et flatet bilde hvis kantene ser forvrengt ut. Rå video røres ikke her (opplasting + sletting
-kommer i kø-tjenesten).
+gjøres av kø-tjenesten).
+
+### Kø-tjeneste (kjører 24/7) — `process_queue`
+
+Prosesserer ferdige økter fortløpende, laster opp de sladdede bildene, og sletter rå video
+**først når opplasting er bekreftet**. Ledig tid (kveld/helg) tar unna etterslep. Kjøres normalt
+som boot-tjenesten `360logger-process`, men kan kjøres manuelt:
+
+```bash
+python3 -m recorder.process_queue --once        # ta én runde gjennom køen og avslutt (test)
+python3 -m recorder.process_queue --no-upload    # prosesser + marker done, men ikke last opp
+python3 -m recorder.process_queue --keep-raw     # ikke slett rå video etter opplasting
+python3 -m recorder.process_queue                # kjør løkka (som tjenesten gjør)
+```
+
+Laster opp til `gdrive:360-streetview/<økt>/`. Markører i økt-mappa: `.processed` (bilder laget),
+`.done` (lastet opp + rå slettet), `.error` (feilet — hoppes over, beholdes for inspeksjon).
 
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 
@@ -171,6 +187,7 @@ kommer i kø-tjenesten).
 sudo bash deploy/bootstrap.sh                 # engangs: installerer + slår på boot-tjenestene
 journalctl -u 360logger-boot.service -b       # se loggen for boot-oppdateringen
 journalctl -u 360logger-photo.service -b -f   # følg den auto-startede foto-øktas logg
+journalctl -u 360logger-process.service -b -f # følg kø-tjenesten (uttrekk → sladd → opplasting)
 sudo systemctl stop 360logger-photo           # stopp auto-økta (for å kjøre photo_session manuelt)
 ```
 
