@@ -24,19 +24,25 @@ from pathlib import Path
 
 _DUR_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _CODEC_RE = re.compile(r"Video:\s*([a-zA-Z0-9]+)")
+_RES_RE = re.compile(r"Video:[^\n]*?(\d{3,5})x(\d{3,5})")
 _PROCESS_S_PER_POINT = 2.9  # flatting + sladding for 1 utsnitt (målt: ~2,9 s)
 
+# Vis fremdrift + advarsler (lyd-advarselen er ufarlig), skjul stdin-blokkering og banner.
+_FF_BASE = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "warning", "-stats"]
 
-def _probe(video: Path) -> tuple[float, str]:
-    """Hent (varighet i sek, kodek) fra ffmpeg stderr (ffprobe trengs ikke)."""
-    proc = subprocess.run(["ffmpeg", "-i", str(video)], capture_output=True, text=True)
+
+def _probe(video: Path) -> tuple[float, str, str]:
+    """Hent (varighet i sek, kodek, oppløsning) fra ffmpeg stderr (ffprobe trengs ikke)."""
+    proc = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video)], capture_output=True, text=True)
     dur = 0.0
     match = _DUR_RE.search(proc.stderr)
     if match:
         hours, minutes, seconds = match.groups()
         dur = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
     codec_match = _CODEC_RE.search(proc.stderr)
-    return dur, codec_match.group(1) if codec_match else "?"
+    res_match = _RES_RE.search(proc.stderr)
+    return (dur, codec_match.group(1) if codec_match else "?",
+            f"{res_match.group(1)}x{res_match.group(2)}" if res_match else "?")
 
 
 def _time_decode(video: Path, seconds: float) -> float:
@@ -44,8 +50,7 @@ def _time_decode(video: Path, seconds: float) -> float:
 
     `-map 0:v:0 -an` hopper over lydsporet — ONE X-lyden gir «Invalid number of
     channels» og er uansett irrelevant her; vi måler videodekoding."""
-    cmd = ["ffmpeg", "-v", "error", "-i", str(video), "-t", str(seconds),
-           "-map", "0:v:0", "-an", "-f", "null", "-"]
+    cmd = _FF_BASE + ["-i", str(video), "-t", str(seconds), "-map", "0:v:0", "-an", "-f", "null", "-"]
     start = time.monotonic()
     subprocess.run(cmd, check=True)
     return time.monotonic() - start
@@ -53,8 +58,8 @@ def _time_decode(video: Path, seconds: float) -> float:
 
 def _time_extract(video: Path, seconds: float, fps: float, out_dir: Path) -> tuple[float, int]:
     """Trekk ut rammer ved `fps` fra de første `seconds`, mål tid + antall (inkl. JPEG-skriving)."""
-    cmd = ["ffmpeg", "-v", "error", "-i", str(video), "-t", str(seconds),
-           "-map", "0:v:0", "-an", "-vf", f"fps={fps}", "-q:v", "3", str(out_dir / "f_%04d.jpg")]
+    cmd = _FF_BASE + ["-i", str(video), "-t", str(seconds), "-map", "0:v:0", "-an",
+                      "-vf", f"fps={fps}", "-q:v", "3", str(out_dir / "f_%04d.jpg")]
     start = time.monotonic()
     subprocess.run(cmd, check=True)
     elapsed = time.monotonic() - start
@@ -71,10 +76,10 @@ def main() -> int:
         print(f"Fant ikke videofil: {video}")
         return 1
 
-    duration, codec = _probe(video)
+    duration, codec, res = _probe(video)
     bench_s = min(args.seconds, duration) if duration > 0 else args.seconds
-    print(f"Video: {video.name}  ·  {duration:.1f} s  ·  kodek {codec}")
-    print(f"Måler på de første {bench_s:.0f} s ...\n")
+    print(f"Video: {video.name}  ·  {duration:.1f} s  ·  kodek {codec}  ·  {res}")
+    print(f"Måler på de første {bench_s:.0f} s (viser ffmpeg-fremdrift underveis) ...\n")
 
     decode_s = _time_decode(video, bench_s)
     factor = bench_s / decode_s if decode_s > 0 else 0.0
