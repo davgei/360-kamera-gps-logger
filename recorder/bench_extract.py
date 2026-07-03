@@ -40,8 +40,12 @@ def _probe(video: Path) -> tuple[float, str]:
 
 
 def _time_decode(video: Path, seconds: float) -> float:
-    """Dekod de første `seconds` sekundene til /dev/null og mål veggtiden."""
-    cmd = ["ffmpeg", "-v", "error", "-i", str(video), "-t", str(seconds), "-f", "null", "-"]
+    """Dekod de første `seconds` sekundene (kun video) til /dev/null og mål veggtiden.
+
+    `-map 0:v:0 -an` hopper over lydsporet — ONE X-lyden gir «Invalid number of
+    channels» og er uansett irrelevant her; vi måler videodekoding."""
+    cmd = ["ffmpeg", "-v", "error", "-i", str(video), "-t", str(seconds),
+           "-map", "0:v:0", "-an", "-f", "null", "-"]
     start = time.monotonic()
     subprocess.run(cmd, check=True)
     return time.monotonic() - start
@@ -50,7 +54,7 @@ def _time_decode(video: Path, seconds: float) -> float:
 def _time_extract(video: Path, seconds: float, fps: float, out_dir: Path) -> tuple[float, int]:
     """Trekk ut rammer ved `fps` fra de første `seconds`, mål tid + antall (inkl. JPEG-skriving)."""
     cmd = ["ffmpeg", "-v", "error", "-i", str(video), "-t", str(seconds),
-           "-vf", f"fps={fps}", "-q:v", "3", str(out_dir / "f_%04d.jpg")]
+           "-map", "0:v:0", "-an", "-vf", f"fps={fps}", "-q:v", "3", str(out_dir / "f_%04d.jpg")]
     start = time.monotonic()
     subprocess.run(cmd, check=True)
     elapsed = time.monotonic() - start
