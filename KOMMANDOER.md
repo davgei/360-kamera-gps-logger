@@ -49,8 +49,18 @@ python3 recorder/record_clip.py       # ta opp ett 5-sekunders testklipp
 rclone lsd gdrive:                    # virker Google Drive-tilkoblingen?
 python3 -m recorder.status_leds --test  # lys hver LED etter tur (sjekk kobling)
 python3 -m recorder.status_leds         # følg klar-status + batteri (grønn/rød LED)
+python3 -m recorder.take_photo -o foto.jpg  # ta ett rått testbilde (dual-fisheye), ingen sladd/opplasting
 python3 recorder/dewarp.py <bilde>.jpg  # gjør dual-fisheye om til flate/panorama-bilder (ffmpeg)
 python3 -m recorder.bench_blur          # mål sladdefart på Pi-en (får «sladd på Pi» plass om natta?)
+```
+
+Steg-for-steg-test (ta bilde → flat → sladd), kjør på Pi-en på kameraets WiFi:
+
+```bash
+python3 -m recorder.take_photo -o foto.jpg                    # 1) rått bilde (to fisheye-bobler)
+python3 recorder/dewarp.py foto.jpg --proj pannini --out-fov 190   # 2) → foto_pannini_yaw0.jpg + _yaw180.jpg
+deface foto_pannini_yaw0.jpg -o foto_sladdet.jpg              # 3) sladd ansikter → foto_sladdet.jpg
+python3 -m recorder.bench_blur --raw foto.jpg                 # 4) mål tid (legg til --scale 640x360 for rask)
 ```
 
 Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)
