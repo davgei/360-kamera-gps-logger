@@ -53,6 +53,9 @@ class OneXCamera:
                     result = json.loads(exc.read().decode("utf-8"))
                 except Exception:
                     raise OscError(f"{name}: HTTP {exc.code} {exc.reason}")
+            except (urllib.error.URLError, OSError) as exc:
+                # kamera borte / timeout / ingen rute → ensartet OscError i stedet for rå urllib-feil
+                raise OscError(f"{name}: {getattr(exc, 'reason', exc)}") from exc
         if result.get("state") == "error":
             error = result.get("error", {})
             raise OscError(f"{name}: {error.get('code', 'error')} — {error.get('message', '')}")

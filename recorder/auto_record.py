@@ -215,6 +215,12 @@ def _finalize_segment(camera: OneXCamera, seg: dict, reason: str, delete_from_ca
     seg["handle"].flush()
     seg["handle"].close()
     video_stop = _utc_now()
+    # Er kameraet borte (typisk grunnen til at vi stopper), ikke heng på 15 s OSC-timeouts —
+    # hopp raskt. Råopptaket ligger på kameraet (utilgjengelig nå); vi fjerner den tomme mappa.
+    if not _camera_reachable(camera.host):
+        print(f"  kamera ikke nåbart — kan ikke hente {seg['dir'].name}; fjerner mappa (rå på kameraet)")
+        shutil.rmtree(seg["dir"], ignore_errors=True)
+        return
     try:
         file_urls = _lens_siblings(camera.stop_capture())
     except OscError as exc:
@@ -268,8 +274,9 @@ def _finalize_segment(camera: OneXCamera, seg: dict, reason: str, delete_from_ca
 
 def run(args: argparse.Namespace) -> int:
     stop_event = threading.Event()
-    signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
-    signal.signal(signal.SIGINT, lambda *_: stop_event.set())
+    signal.signal(signal.SIGTERM, lambda *_: stop_event.set())  # systemd-stopp → ryddig avslutning
+    # SIGINT (Ctrl+C) håndteres IKKE her — la den heve KeyboardInterrupt, så den kan BRYTE en
+    # blokkerende kamera-nedlasting. (En flagg-håndterer her gjorde at Ctrl+C ikke stoppet den.)
 
     camera = OneXCamera(args.host)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -343,10 +350,15 @@ def run(args: argparse.Namespace) -> int:
 
             next_tick = max(next_tick + args.interval, now)
             stop_event.wait(max(0.0, next_tick - time.monotonic()))
+    except KeyboardInterrupt:
+        print("\nStopper (Ctrl+C) ...")
     finally:
         if seg is not None:
             print("Avslutter — fullfører siste bit ...")
-            _finalize_segment(camera, seg, "shutdown", not args.keep_on_camera)
+            try:
+                _finalize_segment(camera, seg, "shutdown", not args.keep_on_camera)
+            except Exception as exc:
+                print(f"  (klarte ikke fullføre siste bit: {exc})")
         reader.stop()
         leds.close()
     return 0
