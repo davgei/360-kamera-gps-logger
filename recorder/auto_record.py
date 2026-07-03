@@ -270,6 +270,7 @@ def run(args: argparse.Namespace) -> int:
 
     seg: dict | None = None
     next_tick = time.monotonic()
+    last_status = 0.0
     try:
         while not stop_event.is_set():
             now = time.monotonic()
@@ -296,6 +297,15 @@ def run(args: argparse.Namespace) -> int:
 
                 if seg is not None and gps_ok:
                     _write_gps_row(seg, fix)
+
+                if now - last_status >= 5.0:  # heartbeat så man ser tilstanden i terminal/journal
+                    last_status = now
+                    if seg is not None:
+                        print(f"  ● opptak {seg['dir'].name} · {seg['rows']} GPS-rader")
+                    else:
+                        sats = fix.satellites if fix.satellites is not None else "?"
+                        print(f"  … venter · GPS {'OK' if gps_ok else 'nei'} (sats={sats}) · "
+                              f"beveget {decider.moved_since_idle:.0f}/{decider.start_move_m:.0f} m")
             except Exception as exc:  # én feil (kamera nede, disk, osv.) skal ALDRI drepe 24/7-løkka
                 print(f"LØKKE-FEIL: {exc} — stopper opptaket, nullstiller og fortsetter")
                 if seg is not None:
