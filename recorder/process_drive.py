@@ -40,6 +40,11 @@ def _find_videos(drive_dir: Path) -> list[Path]:
     return sorted(p for p in drive_dir.glob("VID_*.mp4"))
 
 
+def _rotation_for(video: Path, args: argparse.Namespace) -> str:
+    """Rotasjon per linse (kameraet er montert på siden): _00_→--rot-00, ellers →--rot-10."""
+    return args.rot_00 if "_00_" in video.stem else args.rot_10
+
+
 def _probe_duration_s(video: Path) -> float:
     """Videoens lengde i sekunder (fra ffmpeg stderr; 0.0 hvis ukjent)."""
     proc = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(video)], capture_output=True, text=True)
@@ -141,10 +146,11 @@ def _process_one_video(video: Path, args: argparse.Namespace, gps_seconds: list[
         return 0
 
     t0 = time.monotonic()
+    rotate = _rotation_for(video, args)
     flats: list[Path] = []
     for frame in raw:
         flats += flatten_views(frame, proj=args.proj, out_fov=args.out_fov, views="0",
-                               rotate="none", fov=args.fov, flat_size=args.flat_size,
+                               rotate=rotate, fov=args.fov, flat_size=args.flat_size,
                                input_kind="fisheye", quiet=True)
     print(f"  flatet {len(flats)} utsnitt på {time.monotonic() - t0:.1f} s")
 
@@ -226,6 +232,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--proj", default="pannini", help="projeksjon (standard pannini)")
     parser.add_argument("--fov", type=float, default=200.0, help="input fisheye-FOV i grader — KALIBRER mot et flatet bilde (standard 200)")
     parser.add_argument("--out-fov", type=float, default=190.0, help="out-fov per utsnitt (standard 190)")
+    parser.add_argument("--rot-10", default="cw", choices=["cw", "ccw", "none"], help="rotasjon for _10_-linsa (yaw 0), standard cw = 90° med klokka")
+    parser.add_argument("--rot-00", default="ccw", choices=["cw", "ccw", "none"], help="rotasjon for _00_-linsa (yaw 180), standard ccw = 90° mot klokka")
     parser.add_argument("--thresh", type=float, default=0.2, help="deface deteksjonsterskel (standard 0.2)")
     parser.add_argument("--out", default=None, help="mappe for sladdede bilder (standard <drive>/blurred)")
     args = parser.parse_args()
