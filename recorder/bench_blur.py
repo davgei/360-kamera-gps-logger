@@ -27,7 +27,7 @@ from pathlib import Path
 
 from recorder.dewarp import flatten_views
 
-_FRAME_COUNTS = (1000, 2500, 5000, 10000)
+_FRAME_COUNTS = (5000, 10000, 17000, 33000)  # ~15 / 30 / 50 / 100 km rute ved 3 m mellomrom
 
 
 def _run(cmd: list[str]) -> None:
@@ -78,11 +78,12 @@ def _report(per_frame_blur: float, flatten_s: float | None, count: int, night_ho
         return
     per_hour = 3600.0 / total
     print(f"\n=> ~{per_hour:.0f} bilder/time. På {night_hours:.0f} t natt: ~{per_hour * night_hours:.0f} bilder.")
-    print("Bilder per dag (rute i meter ÷ 3) vs. tid Pi-en trenger:")
+    print("Rutelengde (ved 3 m mellomrom) vs. tid Pi-en trenger:")
     for frames in _FRAME_COUNTS:
         hours = frames * total / 3600.0
+        km = frames * 3 / 1000.0
         fits = "✓ får plass" if hours <= night_hours else "✗ for mye"
-        print(f"   {frames:6d} bilder  ->  {hours:5.1f} t   {fits}")
+        print(f"   {frames:6d} bilder (~{km:3.0f} km)  ->  {hours:5.1f} t   {fits}")
     print("\nTips: --scale 640x360 gjør deface mye raskere (lavere presisjon på små ansikter).")
 
 
