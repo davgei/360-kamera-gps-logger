@@ -21,12 +21,13 @@ bekreftet. Markører i økt-mappa: .processed (bilder laget), .done (lastet opp 
 from __future__ import annotations
 
 import argparse
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-from recorder.uploader import RCLONE_FLAGS, require_rclone
+from recorder.uploader import RCLONE_FLAGS
 
 DEFAULT_DRIVES_DIR = Path.home() / "360-drives"
 
@@ -64,8 +65,8 @@ def _upload_blurred(blurred: Path, remote: str, remote_path: str, drive_name: st
         subprocess.run(["rclone", "move", str(blurred), target, *RCLONE_FLAGS],
                        check=True, start_new_session=True)
         return True
-    except subprocess.CalledProcessError:
-        return False
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return False  # rclone mangler / feilet / offline → behandles som «prøv igjen» (rå beholdes)
 
 
 def _delete_raw(drive: Path) -> int:
@@ -143,10 +144,20 @@ def _acquire_lock(drives_dir: Path):
     return handle
 
 
+def _rclone_ready(remote: str) -> bool:
+    if shutil.which("rclone") is None:
+        return False
+    result = subprocess.run(["rclone", "listremotes"], capture_output=True, text=True)
+    return f"{remote}:" in result.stdout.split()
+
+
 def main() -> int:
     args = _parse_args()
-    if not args.no_upload:
-        require_rclone(args.remote)
+    # Ikke krasj (og krasj-loop under systemd) hvis rclone ikke er satt opp ennå: prosesser
+    # likevel, opplasting prøves på nytt til det er konfigurert. Rå slettes ALDRI før opplasting.
+    if not args.no_upload and not _rclone_ready(args.remote):
+        print(f"ADVARSEL: rclone-remote '{args.remote}:' er ikke konfigurert (kjør: rclone config). "
+              "Prosesserer likevel; opplasting prøves på nytt til det virker.")
     if _acquire_lock(args.drives_dir) is None:
         print("En annen process_queue kjører allerede (lås holdt) — avslutter.")
         return 0
