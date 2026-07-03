@@ -9,9 +9,21 @@ Regler (bekreftet med bruker):
     fra kameraet, så SD-kortet (256 GB) ikke fylles.
   • Internett trengs ikke for opptak (opplasting skjer i kø-tjenesten).
 
-Hver bit blir en `~/360-drives/drive_<tid>/`-mappe (video + gps_track.csv + session.json)
-som kø-tjenesten (process_queue) plukker opp: uttrekk hver 3 m → flat → sladd → last opp
-→ slett rå.
+Nedlastingen skjer i BAKGRUNNEN mens neste bit filmes (verifisert mulig med
+recorder/overlap_test på kameraet): ved bit-grensa stoppes opptaket, neste bit startes
+umiddelbart (~1-2 s hull), og en `pending.json` skrives i bit-mappa. En bakgrunnstråd
+(PendingDownloader) plukker opp pending-mapper, laster ned begge linser, sletter fra
+kameraet (kun bekreftet nedlastede filer) og skriver session.json. Disk-tilstanden er
+kilden, så avbrutte nedlastinger gjenopptas automatisk ved neste oppstart.
+
+Merk: kameraet skriver video (~15 MB/s) raskere enn kamera-WiFi leverer under opptak
+(~6.5 MB/s), så nedlastingen ligger på etterskudd under sammenhengende kjøring og tar
+igjen når bilen står i ro (3-min-stopp, lunsj, natt). SD-vakten pauser opptak hvis
+kameraets kort har mindre enn ~15 GB fritt (én bit + margin).
+
+Hver ferdig bit blir en `~/360-drives/drive_<tid>/`-mappe (video + gps_track.csv +
+session.json) som kø-tjenesten (process_queue) plukker opp: uttrekk hver 3 m → flat →
+sladd → last opp → slett rå.
 
     python3 -m recorder.auto_record            # kjør kontrolleren (som tjenesten gjør)
     python3 -m recorder.auto_record --segment-min 10 --stationary-min 3
@@ -46,7 +58,7 @@ DEFAULT_OUT_DIR = Path.home() / "360-drives"
 _MOVE_SPEED_MPS = 0.7      # over dette regnes bilen som i bevegelse (~2.5 km/t)
 _JITTER_FLOOR_M = 2.0      # hvis fart mangler: steg må være så stort for å telle som bevegelse
 _GPS_TIMEOUT_S = 5.0       # ingen gyldig fix på så lenge = GPS tapt
-_SD_MIN_FREE_BYTES = 2 * 1024 ** 3  # under dette: pause opptak til plass frigjøres
+_SD_MIN_FREE_BYTES = 15 * 1024 ** 3  # én 10-min bit er ~9-10 GB (målt ~15 MB/s) — under dette: pause
 _CAM_CHECK_S = 5.0         # hvor ofte kamera-tilgjengelighet sjekkes (rask socket-test)
 
 
@@ -186,9 +198,23 @@ def _start_segment(camera: OneXCamera, out_dir: Path) -> dict:
         seg_dir = out_dir / f"drive_{stamp}_{suffix}"
     seg_dir.mkdir(parents=True, exist_ok=True)
     try:
-        camera.set_video_mode()
-        video_start = _utc_now()
-        camera.start_capture()
+        try:
+            camera.set_video_mode()
+            video_start = _utc_now()
+            camera.start_capture()
+        except OscError:
+            # Kameraet kan stå fast i et gammelt opptak (f.eks. en stopp som timet ut under
+            # bakgrunnsnedlasting) — stopp det og prøv én gang til.
+            try:
+                stuck = camera.stop_capture()
+                if stuck:
+                    print(f"  (stoppet et fastlåst opptak — {len(stuck)} fil(er) blir liggende på kameraets SD)")
+            except OscError:
+                pass
+            time.sleep(1.0)
+            camera.set_video_mode()
+            video_start = _utc_now()
+            camera.start_capture()
         handle = (seg_dir / "gps_track.csv").open("w", newline="", encoding="utf-8")
         writer = csv.writer(handle)
         writer.writerow(GPS_TRACK_COLUMNS)
@@ -211,14 +237,14 @@ def _write_gps_row(seg: dict, fix: GpsFix) -> None:
     seg["rows"] += 1
 
 
-def _finalize_segment(camera: OneXCamera, seg: dict, reason: str, delete_from_camera: bool) -> None:
+def _close_segment(camera: OneXCamera, seg: dict, reason: str) -> None:
+    """RASK avslutning (i hovedløkka, ~1 s): lukk GPS-fila, stopp opptaket, skriv pending.json.
+    Selve nedlastingen gjør PendingDownloader i bakgrunnen — neste bit kan starte umiddelbart."""
     seg["handle"].flush()
     seg["handle"].close()
     video_stop = _utc_now()
-    # Er kameraet borte (typisk grunnen til at vi stopper), ikke heng på 15 s OSC-timeouts —
-    # hopp raskt. Råopptaket ligger på kameraet (utilgjengelig nå); vi fjerner den tomme mappa.
     if not _camera_reachable(camera.host):
-        print(f"  kamera ikke nåbart — kan ikke hente {seg['dir'].name}; fjerner mappa (rå på kameraet)")
+        print(f"  kamera ikke nåbart — kan ikke stoppe/hente {seg['dir'].name}; fjerner mappa")
         shutil.rmtree(seg["dir"], ignore_errors=True)
         return
     try:
@@ -226,50 +252,132 @@ def _finalize_segment(camera: OneXCamera, seg: dict, reason: str, delete_from_ca
     except OscError as exc:
         print(f"  feil ved stopp: {exc}")
         file_urls = []
-
-    downloaded_urls: list[str] = []
-    video_files: list[str] = []
-    for url in file_urls:
-        name = url.rsplit("/", 1)[-1] or "video.mp4"
-        dest = seg["dir"] / name
-        try:
-            camera.download(url, dest)
-            if dest.is_file() and dest.stat().st_size > 0:
-                downloaded_urls.append(url)
-                video_files.append(name)
-        except Exception as exc:
-            print(f"  klarte ikke hente {name}: {exc}")
-
-    if not video_files:
-        # Ingen video kom ned (rå ligger fortsatt trygt på kameraet). Ikke skriv session.json
-        # (da ville kø-tjenesten .error-et den) og ikke etterlat en foreldreløs GPS-mappe.
-        print(f"  ADVARSEL: ingen videofiler lastet ned for {seg['dir'].name} — fjerner mappa "
-              "(rå beholdes på kameraet)")
+    if not file_urls:
         shutil.rmtree(seg["dir"], ignore_errors=True)
         return
-
-    # Slett fra kameraet KUN de filene som er bekreftet nedlastet (SD-kortet holdes tomt).
-    if delete_from_camera and downloaded_urls:
-        try:
-            camera.delete(downloaded_urls)
-        except OscError as exc:
-            print(f"  klarte ikke slette fra kamera: {exc}")
-
-    session = {
+    pending = {
         "video_start_utc": seg["start"].isoformat(),
         "video_stop_utc": video_stop.isoformat(),
         "duration_s": round((video_stop - seg["start"]).total_seconds(), 1),
         "stop_reason": reason,
-        "clock": "Pi system clock (UTC); gps_track.csv uses the SAME clock",
-        "gps_track": "gps_track.csv",
         "gps_rows": seg["rows"],
-        "video_files": video_files,
-        "deleted_from_camera": bool(delete_from_camera and downloaded_urls),
+        "urls": file_urls,
+        "attempts": 0,
     }
-    tmp = seg["dir"] / ".session.json.tmp"
-    tmp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(seg["dir"] / "session.json")
-    print(f"■ OPPTAK STOPP {seg['dir'].name} ({reason}) — {len(video_files)} videofil(er), {seg['rows']} GPS-rader")
+    tmp = seg["dir"] / ".pending.json.tmp"
+    tmp.write_text(json.dumps(pending, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(seg["dir"] / "pending.json")
+    print(f"■ OPPTAK STOPP {seg['dir'].name} ({reason}) — {len(file_urls)} fil(er) hentes i bakgrunnen")
+
+
+class PendingDownloader(threading.Thread):
+    """Bakgrunnsnedlaster: plukker biter med pending.json (eldste først), laster ned begge
+    linser MENS neste bit filmes (verifisert med overlap_test), sletter fra kameraet (kun
+    bekreftet nedlastede filer) og skriver session.json — først da ser kø-tjenesten økta.
+    Disk-tilstanden er kilden: avbrutte/feilede nedlastinger plukkes opp igjen automatisk,
+    også etter omstart."""
+
+    MAX_ATTEMPTS = 5  # forsøk der kameraet SVARER men nedlasting feiler; kamera-av teller ikke
+
+    def __init__(self, camera: OneXCamera, out_dir: Path, keep_on_camera: bool,
+                 scan_interval: float = 5.0) -> None:
+        super().__init__(daemon=True)
+        self.camera = camera
+        self.out_dir = out_dir
+        self.keep_on_camera = keep_on_camera
+        self.scan_interval = scan_interval
+        self._stop = threading.Event()
+        self.nudge = threading.Event()
+
+    def pending_dirs(self) -> list[Path]:
+        if not self.out_dir.exists():
+            return []
+        return sorted(d for d in self.out_dir.iterdir() if d.is_dir() and (d / "pending.json").is_file())
+
+    def stop(self) -> None:
+        self._stop.set()
+        self.nudge.set()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            progressed = False
+            for seg_dir in self.pending_dirs():
+                if self._stop.is_set():
+                    break
+                progressed = self._process(seg_dir) or progressed
+            if not progressed:
+                self.nudge.wait(self.scan_interval)
+                self.nudge.clear()
+
+    def _process(self, seg_dir: Path) -> bool:
+        try:
+            job = json.loads((seg_dir / "pending.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not _camera_reachable(self.camera.host):
+            return False  # kamera av (parkert/uten strøm) — filene ligger trygt på SD, prøv senere
+
+        urls = job.get("urls", [])
+        downloaded: list[str] = []
+        files: list[str] = []
+        for url in urls:
+            name = url.rsplit("/", 1)[-1] or "video.mp4"
+            dest = seg_dir / name
+            if dest.is_file():  # finnes = verifisert komplett (vi laster til .part og omdøper til slutt)
+                downloaded.append(url)
+                files.append(name)
+                continue
+            # Last ned til .part og omdøp KUN etter verifisert komplett nedlasting — dør prosessen
+            # midt i (strømkutt/SIGKILL), blir en halvferdig .part aldri tolket som ekte video,
+            # og originalen på kameraet slettes ikke.
+            part = seg_dir / (name + ".part")
+            try:
+                self.camera.download(url, part)
+                part.replace(dest)
+                downloaded.append(url)
+                files.append(name)
+                print(f"  [nedlaster] hentet {name} ({dest.stat().st_size / 1e6:.0f} MB)")
+            except Exception as exc:
+                part.unlink(missing_ok=True)
+                print(f"  [nedlaster] {name}: {exc}")
+
+        if len(files) < len(urls):
+            job["attempts"] = int(job.get("attempts", 0)) + 1
+            if job["attempts"] < self.MAX_ATTEMPTS:
+                tmp = seg_dir / ".pending.json.tmp"
+                tmp.write_text(json.dumps(job, indent=2, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(seg_dir / "pending.json")
+                return bool(files)
+            print(f"  [nedlaster] gir opp resten av {seg_dir.name} etter {job['attempts']} forsøk")
+
+        if not files:
+            print(f"  [nedlaster] ingen filer for {seg_dir.name} — fjerner mappa (rå evt. igjen på kameraet)")
+            shutil.rmtree(seg_dir, ignore_errors=True)
+            return True
+
+        if not self.keep_on_camera and downloaded:
+            try:
+                self.camera.delete(downloaded)
+            except OscError as exc:
+                print(f"  [nedlaster] klarte ikke slette fra kamera: {exc}")
+
+        session = {
+            "video_start_utc": job.get("video_start_utc"),
+            "video_stop_utc": job.get("video_stop_utc"),
+            "duration_s": job.get("duration_s"),
+            "stop_reason": job.get("stop_reason"),
+            "clock": "Pi system clock (UTC); gps_track.csv uses the SAME clock",
+            "gps_track": "gps_track.csv",
+            "gps_rows": job.get("gps_rows", 0),
+            "video_files": files,
+            "deleted_from_camera": bool(not self.keep_on_camera and downloaded),
+        }
+        tmp = seg_dir / ".session.json.tmp"
+        tmp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(seg_dir / "session.json")
+        (seg_dir / "pending.json").unlink(missing_ok=True)
+        print(f"  [nedlaster] ✔ {seg_dir.name} klar ({len(files)} videofil(er))")
+        return True
 
 
 def run(args: argparse.Namespace) -> int:
@@ -284,10 +392,15 @@ def run(args: argparse.Namespace) -> int:
     reader.start()
     decider = RecordDecider(args.start_move_m, args.stationary_min * 60.0, args.segment_min * 60.0)
     leds = StatusLeds(enabled=not args.no_leds)  # blå = GPS · grønn = filmer · rød = kamera ikke nåbart
+    downloader = PendingDownloader(camera, args.out_dir, args.keep_on_camera)
+    downloader.start()  # plukker også opp pending-biter fra en tidligere kjøring
 
     print(f"Autonom opptak-kontroller · start ved {args.start_move_m:.0f} m · stopp etter "
           f"{args.stationary_min:g} min i ro · bit {args.segment_min:g} min · Ctrl+C for å stoppe")
     print("LED: blå = GPS-fix · grønn = filmer · rød = kamera ikke nåbart")
+    leftover = len(downloader.pending_dirs())
+    if leftover:
+        print(f"({leftover} bit(er) fra tidligere venter på nedlasting — hentes i bakgrunnen)")
 
     seg: dict | None = None
     camera_ok = False
@@ -309,13 +422,15 @@ def run(args: argparse.Namespace) -> int:
                         print("SD-kortet er nesten fullt — venter med å starte opptak")
                         decider.force_idle()
                 elif action.startswith("stop") and seg is not None:
-                    _finalize_segment(camera, seg, action, not args.keep_on_camera)
+                    _close_segment(camera, seg, action)
                     seg = None
+                    downloader.nudge.set()  # bilen står nå — perfekt tid å laste ned
                 elif action == "rotate" and seg is not None:
-                    _finalize_segment(camera, seg, "rotate", not args.keep_on_camera)
+                    _close_segment(camera, seg, "rotate")
                     seg = _start_segment(camera, args.out_dir) if _sd_ok(camera) else None
+                    downloader.nudge.set()  # nedlastingen skjer i bakgrunnen mens neste bit filmes
                     if seg is None:
-                        print("SD-kortet er nesten fullt — pauser opptak")
+                        print("SD-kortet er nesten fullt — pauser opptak til nedlastingen frigjør plass")
                         decider.force_idle()
 
                 if seg is not None and gps_ok:
@@ -323,12 +438,14 @@ def run(args: argparse.Namespace) -> int:
 
                 if now - last_status >= 5.0:  # heartbeat så man ser tilstanden i terminal/journal
                     last_status = now
+                    pend = len(downloader.pending_dirs())
+                    queue_note = f" · {pend} bit(er) i nedlastingskø" if pend else ""
                     if seg is not None:
-                        print(f"  ● opptak {seg['dir'].name} · {seg['rows']} GPS-rader")
+                        print(f"  ● opptak {seg['dir'].name} · {seg['rows']} GPS-rader{queue_note}")
                     else:
                         sats = fix.satellites if fix.satellites is not None else "?"
                         print(f"  … venter · GPS {'OK' if gps_ok else 'nei'} (sats={sats}) · "
-                              f"beveget {decider.moved_since_idle:.0f}/{decider.start_move_m:.0f} m")
+                              f"beveget {decider.moved_since_idle:.0f}/{decider.start_move_m:.0f} m{queue_note}")
 
                 # Sjekk kamera-tilgjengelighet jevnlig — også UNDER opptak, ellers merkes det ikke
                 # om kameraet skrur seg av mens vi «filmer» (da forble rød av). Rask socket-test.
@@ -340,7 +457,7 @@ def run(args: argparse.Namespace) -> int:
                 print(f"LØKKE-FEIL: {exc} — stopper opptaket, nullstiller og fortsetter")
                 if seg is not None:
                     try:
-                        _finalize_segment(camera, seg, "error", not args.keep_on_camera)
+                        _close_segment(camera, seg, "error")
                     except Exception:
                         pass
                     seg = None
@@ -354,11 +471,24 @@ def run(args: argparse.Namespace) -> int:
         print("\nStopper (Ctrl+C) ...")
     finally:
         if seg is not None:
-            print("Avslutter — fullfører siste bit ...")
+            print("Avslutter — stopper siste bit ...")
             try:
-                _finalize_segment(camera, seg, "shutdown", not args.keep_on_camera)
+                _close_segment(camera, seg, "shutdown")
+                downloader.nudge.set()
             except Exception as exc:
-                print(f"  (klarte ikke fullføre siste bit: {exc})")
+                print(f"  (klarte ikke stoppe siste bit: {exc})")
+        pending = downloader.pending_dirs()
+        if pending:
+            # Gi pågående nedlasting en sjanse, men ikke heng: pending.json gjør at resten
+            # hentes automatisk ved neste oppstart (filene ligger trygt på kameraets SD).
+            print(f"Venter inntil 60 s på {len(pending)} nedlasting(er) — resten hentes ved neste oppstart ...")
+            deadline = time.monotonic() + 60.0
+            while downloader.pending_dirs() and time.monotonic() < deadline:
+                time.sleep(2.0)
+            left = len(downloader.pending_dirs())
+            if left:
+                print(f"  ({left} bit(er) gjenstår — hentes automatisk neste gang)")
+        downloader.stop()
         reader.stop()
         leds.close()
     return 0

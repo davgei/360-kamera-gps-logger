@@ -185,8 +185,11 @@ Laster opp til `gdrive:360-streetview/<økt>/`. Markører i økt-mappa: `.proces
 
 GPS-styrt opptaks-kontroller (boot-tjenesten `360logger-drive`). Starter opptak **først når GPS har
 beveget seg >10 m**, stopper hvis GPS mistes, stopper etter **3 min i ro** (venter til bevegelse), og
-roter opptaket i **10-minutters biter** som lastes ned og **slettes fra kameraet** (så 256 GB-SD-en
-ikke fylles). Hver bit blir en `~/360-drives/drive_<tid>/`-økt som kø-tjenesten plukker opp.
+roter opptaket i **10-minutters biter**. Ved hver bit-grense starter neste bit **umiddelbart**
+(~1–2 s hull, målt med `overlap_test`), og forrige bit lastes ned + **slettes fra kameraet i
+bakgrunnen** mens den nye filmes. Hver ferdig bit blir en `~/360-drives/drive_<tid>/`-økt som
+kø-tjenesten plukker opp. Avbrutte nedlastinger gjenopptas automatisk ved neste oppstart
+(`pending.json` i bit-mappa = venter på nedlasting).
 
 ```bash
 python3 -m recorder.auto_record                     # kjør kontrolleren (som tjenesten gjør)
