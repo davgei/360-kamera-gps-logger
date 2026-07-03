@@ -63,6 +63,15 @@ deface foto_pannini_yaw0.jpg -o foto_sladdet.jpg              # 3) sladd ansikte
 python3 -m recorder.bench_blur --raw foto.jpg                 # 4) mål tid (legg til --scale 640x360 for rask)
 ```
 
+Eller **hele kjeden på begge utsnitt i én kommando** (flat ut + sladd yaw0 *og* yaw180, med tid):
+
+```bash
+python3 -m recorder.process_photo --take                       # tar bilde + flat 1920 + sladd 640 på begge
+python3 -m recorder.process_photo --input foto.jpg             # samme, på et bilde du allerede har
+```
+Lager `foto_pannini_yaw0_anonymized.jpg` + `foto_pannini_yaw180_anonymized.jpg` og skriver ut tiden
+per steg (totalen = ett 3 m-punkt, 2 utsnitt).
+
 Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)
 
 ```bash
