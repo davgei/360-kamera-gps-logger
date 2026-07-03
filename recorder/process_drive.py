@@ -34,6 +34,9 @@ from recorder.trigger_preview import haversine_m
 
 _FF = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error"]
 _DUR_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+_MOVE_SPEED_MPS = 0.7        # under dette regnes fiksen som stillstand (GPS-drift, ikke bevegelse)
+_JITTER_FLOOR_M = 2.0        # fallback når fart mangler: steg mindre enn dette teller ikke
+_TELEPORT_CEILING_M = 100.0  # enkeltsteg større enn dette er GPS-hopp, ikke kjøring
 
 
 def _find_videos(drive_dir: Path) -> list[Path]:
@@ -90,25 +93,37 @@ def _gps_point_seconds(drive_dir: Path, spacing_m: float, camera_offset_s: float
     except (OSError, ValueError, KeyError) as exc:
         raise SystemExit(f"Kunne ikke lese video_start_utc fra {drive_dir / 'session.json'}: {exc}")
 
-    rows: list[tuple[datetime, float, float]] = []
+    rows: list[tuple[datetime, float, float, float | None]] = []
     with (drive_dir / "gps_track.csv").open(encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             try:
                 stamp = datetime.fromisoformat(row["timestamp"])
-                rows.append((stamp, float(row["lat"]), float(row["lon"])))
+                speed = float(row["speed"]) if row.get("speed") else None
+                rows.append((stamp, float(row["lat"]), float(row["lon"]), speed))
             except (ValueError, KeyError):
                 continue
 
+    # GPS-posisjonen driver 0.5-3 m/s selv i ro, og støyen er stor relativt til gangfart.
+    # Tell derfor bare avstand når vi faktisk BEVEGER oss (fart fra RMC; fallback: stegstørrelse)
+    # — ellers blir bildene mye tettere enn spacing_m (observert ~1 m i stedet for 3 m).
     seconds: list[float] = []
     accumulated = spacing_m  # ta med første punkt
-    for i, (stamp, lat, lon) in enumerate(rows):
+    dropped_drift_m = 0.0
+    for i, (stamp, lat, lon, speed) in enumerate(rows):
         if i > 0:
-            accumulated += haversine_m(rows[i - 1][1], rows[i - 1][2], lat, lon)
+            step = haversine_m(rows[i - 1][1], rows[i - 1][2], lat, lon)
+            moving = speed >= _MOVE_SPEED_MPS if speed is not None else step >= _JITTER_FLOOR_M
+            if moving and 0 < step <= _TELEPORT_CEILING_M:
+                accumulated += step
+            else:
+                dropped_drift_m += step
         if accumulated >= spacing_m:
             accumulated = 0.0
             video_s = (stamp - video_start).total_seconds() + camera_offset_s
             if video_s >= 0:
                 seconds.append(video_s)
+    if dropped_drift_m >= spacing_m:
+        print(f"  (filtrerte bort {dropped_drift_m:.0f} m GPS-drift i ro)")
     return seconds
 
 
