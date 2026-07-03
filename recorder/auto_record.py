@@ -25,6 +25,7 @@ import csv
 import json
 import shutil
 import signal
+import socket
 import threading
 import time
 from datetime import datetime, timezone
@@ -46,6 +47,7 @@ _MOVE_SPEED_MPS = 0.7      # over dette regnes bilen som i bevegelse (~2.5 km/t)
 _JITTER_FLOOR_M = 2.0      # hvis fart mangler: steg må være så stort for å telle som bevegelse
 _GPS_TIMEOUT_S = 5.0       # ingen gyldig fix på så lenge = GPS tapt
 _SD_MIN_FREE_BYTES = 2 * 1024 ** 3  # under dette: pause opptak til plass frigjøres
+_CAM_CHECK_S = 5.0         # hvor ofte kamera-tilgjengelighet sjekkes (rask socket-test)
 
 
 def _utc_now() -> datetime:
@@ -166,11 +168,12 @@ def _sd_ok(camera: OneXCamera) -> bool:
     return free is None or free >= _SD_MIN_FREE_BYTES
 
 
-def _camera_reachable(camera: OneXCamera) -> bool:
+def _camera_reachable(host: str, port: int = 80, timeout: float = 1.5) -> bool:
+    """Rask sjekk (uten å henge på OSC-timeout): svarer kameraets HTTP-port?"""
     try:
-        camera.get_state()
-        return True
-    except Exception:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
         return False
 
 
@@ -320,12 +323,11 @@ def run(args: argparse.Namespace) -> int:
                         print(f"  … venter · GPS {'OK' if gps_ok else 'nei'} (sats={sats}) · "
                               f"beveget {decider.moved_since_idle:.0f}/{decider.start_move_m:.0f} m")
 
-                # Under opptak er kameraet åpenbart nåbart; ellers pinges det lett hvert 10. sek.
-                if seg is not None:
-                    camera_ok = True
-                elif now - last_cam_check >= 10.0:
+                # Sjekk kamera-tilgjengelighet jevnlig — også UNDER opptak, ellers merkes det ikke
+                # om kameraet skrur seg av mens vi «filmer» (da forble rød av). Rask socket-test.
+                if now - last_cam_check >= _CAM_CHECK_S:
                     last_cam_check = now
-                    camera_ok = _camera_reachable(camera)
+                    camera_ok = _camera_reachable(args.host)
                 leds.set_drive(gps_ok, seg is not None, camera_ok)
             except Exception as exc:  # én feil (kamera nede, disk, osv.) skal ALDRI drepe 24/7-løkka
                 print(f"LØKKE-FEIL: {exc} — stopper opptaket, nullstiller og fortsetter")
