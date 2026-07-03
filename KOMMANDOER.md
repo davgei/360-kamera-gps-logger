@@ -50,6 +50,7 @@ rclone lsd gdrive:                    # virker Google Drive-tilkoblingen?
 python3 -m recorder.status_leds --test  # lys hver LED etter tur (sjekk kobling)
 python3 -m recorder.status_leds         # følg klar-status + batteri (grønn/rød LED)
 python3 recorder/dewarp.py <bilde>.jpg  # gjør dual-fisheye om til flate/panorama-bilder (ffmpeg)
+python3 -m recorder.bench_blur          # mål sladdefart på Pi-en (får «sladd på Pi» plass om natta?)
 ```
 
 Dukker ikke kameranettet opp i WiFi-lista? (Det sender på 5 GHz, channel 36.)
