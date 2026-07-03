@@ -181,14 +181,30 @@ python3 -m recorder.process_queue                # kjør løkka (som tjenesten g
 Laster opp til `gdrive:360-streetview/<økt>/`. Markører i økt-mappa: `.processed` (bilder laget),
 `.done` (lastet opp + rå slettet), `.error` (feilet — hoppes over, beholdes for inspeksjon).
 
-## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
+### Autonomt opptak (kjører 24/7) — `auto_record`
+
+GPS-styrt opptaks-kontroller (boot-tjenesten `360logger-drive`). Starter opptak **først når GPS har
+beveget seg >10 m**, stopper hvis GPS mistes, stopper etter **3 min i ro** (venter til bevegelse), og
+roter opptaket i **10-minutters biter** som lastes ned og **slettes fra kameraet** (så 256 GB-SD-en
+ikke fylles). Hver bit blir en `~/360-drives/drive_<tid>/`-økt som kø-tjenesten plukker opp.
 
 ```bash
-sudo bash deploy/bootstrap.sh                 # engangs: installerer + slår på boot-tjenestene
-journalctl -u 360logger-boot.service -b       # se loggen for boot-oppdateringen
-journalctl -u 360logger-photo.service -b -f   # følg den auto-startede foto-øktas logg
-journalctl -u 360logger-process.service -b -f # følg kø-tjenesten (uttrekk → sladd → opplasting)
-sudo systemctl stop 360logger-photo           # stopp auto-økta (for å kjøre photo_session manuelt)
+python3 -m recorder.auto_record                     # kjør kontrolleren (som tjenesten gjør)
+python3 -m recorder.auto_record --stationary-min 3 --segment-min 10   # standardverdier
+python3 -m recorder.auto_record --keep-on-camera    # ikke slett fra kameraet (feilsøk)
+```
+
+## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
+
+Boot-tjenester (video-pipelinen): **boot** (git-pull) → **drive** (autonomt opptak) →
+**process** (uttrekk+sladd+opplasting) → **upload** (rest-opplasting). Klikk-foto (`360logger-photo`)
+auto-starter **ikke** lenger (den brukte kameraet og kolliderte); kjør den manuelt ved behov.
+
+```bash
+sudo bash deploy/bootstrap.sh                  # engangs: installerer + slår på boot-tjenestene
+journalctl -u 360logger-drive.service -b -f    # følg det autonome opptaket (start/stopp/rotasjon)
+journalctl -u 360logger-process.service -b -f  # følg kø-tjenesten (uttrekk → sladd → opplasting)
+sudo systemctl stop 360logger-drive            # stopp auto-opptak (for å kjøre noe manuelt)
 ```
 
 > Merk: kjør opptak og `rclone` som **din egen bruker (uten `sudo`)**. Med `sudo` leter rclone

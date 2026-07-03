@@ -89,14 +89,18 @@ log "Adding $REPO_USER to gpio + input groups (LEDs + mouse button)"
 usermod -aG gpio,input "$REPO_USER" || true
 
 log "Installing systemd services"
-for unit in 360logger-boot 360logger-app 360logger-upload 360logger-photo 360logger-process; do
+for unit in 360logger-boot 360logger-app 360logger-upload 360logger-photo 360logger-process 360logger-drive; do
   sed -e "s|__REPO_DIR__|$REPO_DIR|g" -e "s|__REPO_USER__|$REPO_USER|g" \
     "$DEPLOY_DIR/systemd/${unit}.service" > "/etc/systemd/system/${unit}.service"
 done
 
 chmod +x "$DEPLOY_DIR"/*.sh
 systemctl daemon-reload
-systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service 360logger-photo.service 360logger-process.service
+# Video-pipeline på boot: git-pull (boot), autonomt opptak (drive), prosessering+opplasting
+# (process), rest-opplasting (upload). 360logger-photo (klikk-foto) auto-starter IKKE — den
+# bruker kameraet og kolliderer med drive; kjør den manuelt ved behov.
+systemctl enable 360logger-boot.service 360logger-app.service 360logger-upload.service 360logger-process.service 360logger-drive.service
+systemctl disable 360logger-photo.service 2>/dev/null || true
 
 log "Done. On every boot the Pi now pulls the latest code, keeps TeamViewer"
 log "online, and (re)starts the logger app from deploy/app.env."

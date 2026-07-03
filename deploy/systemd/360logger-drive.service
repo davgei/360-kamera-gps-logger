@@ -1,0 +1,17 @@
+[Unit]
+Description=360 autonomous GPS-gated recorder (start on movement, stop on stop/gps-loss)
+After=network-online.target 360logger-boot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__REPO_USER__
+Environment=HOME=/home/__REPO_USER__
+Environment=PATH=/home/__REPO_USER__/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=__REPO_DIR__
+ExecStart=/usr/bin/python3 -m recorder.auto_record
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -140,4 +140,26 @@ class OneXCamera:
     def download(self, url: str, dest: Path) -> None:
         request = urllib.request.Request(url, method="GET")
         with urllib.request.urlopen(request, timeout=self.timeout) as response, open(dest, "wb") as out:
+            expected = response.getheader("Content-Length")
             shutil.copyfileobj(response, out)
+        # Verifiser at hele fila kom (viktig før vi evt. sletter originalen fra kameraet).
+        if expected is not None and dest.stat().st_size != int(expected):
+            raise OscError(f"nedlasting avkuttet: {dest.name} fikk {dest.stat().st_size}/{expected} byte")
+
+    def delete(self, file_urls: list[str]) -> None:
+        """Delete files from the camera SD (OSC camera.delete). Only call AFTER a verified download."""
+        if not file_urls:
+            return
+        self._execute("camera.delete", {"fileUrls": file_urls})
+
+    def free_space_bytes(self) -> int | None:
+        """Best-effort free space on the camera SD, in bytes (from /osc/state). None if unknown."""
+        try:
+            state = self.get_state().get("state", {})
+        except Exception:
+            return None
+        for key in ("remainingSpace", "storageRemaining", "freeSpace", "remaining_space"):
+            value = state.get(key)
+            if isinstance(value, (int, float)):
+                return int(value)
+        return None
