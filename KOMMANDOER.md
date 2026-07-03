@@ -146,8 +146,24 @@ python3 -m recorder.drive_session --no-download   # ikke last ned nå (hent fra 
 ```
 
 Lagres i `~/360-drives/drive_<tidspunkt>/`: `session.json` (synk-tid), `gps_track.csv`, og
-videofilene fra kameraet. Kopier hele mappa til PC-en (scp/USB) — der kjører selve uttrekket
-(video → bilde per 3 m → flat → sladd), som bygges videre i `streetview_light`.
+**begge** linse-filene (`…_10_…` og `…_00_…`) fra kameraet.
+
+### Prosessere en økt (uttrekk → flat → sladd) — `process_drive`
+
+Tar en `drive_<...>`-mappe (eller én video) og lager sladdede bilder. To modus:
+
+```bash
+# TEST uten GPS — én ramme hvert 2. sekund av videoen:
+python3 -m recorder.process_drive --video ~/360-drives/drive_.../VID_..._10_...mp4 --interval-s 2
+
+# EKTE — begge linser, ett bilde per 3 m langs GPS-sporet:
+python3 -m recorder.process_drive --drive ~/360-drives/drive_20260703T071100 --spacing-m 3
+```
+
+For hver ramme: hent fra videoen → flat ut (enkelt-fisheye) → sladd (deface) → `<mappe>/blurred/`.
+Standard flat 1920×1920, deface-skala 640×640. **Kalibrer `--fov`** (input-fisheye-FOV, standard 200)
+mot et flatet bilde hvis kantene ser forvrengt ut. Rå video røres ikke her (opplasting + sletting
+kommer i kø-tjenesten).
 
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 

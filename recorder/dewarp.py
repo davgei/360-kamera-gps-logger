@@ -38,8 +38,11 @@ def _ffmpeg(vf: str, src: Path, dst: Path) -> None:
 
 def flatten_views(src: Path, proj: str = "pannini", out_fov: float = 190.0, views: str = "0,180",
                   rotate: str = "cw,ccw", fov: float = 200.0, flat_size: str = "2880x2880",
-                  pitch: float = 0.0, quiet: bool = False) -> list:
-    """Produce flattened view(s) next to src (one JPEG per yaw in `views`). Returns the paths."""
+                  pitch: float = 0.0, quiet: bool = False, input_kind: str = "dfisheye") -> list:
+    """Produce flattened view(s) next to src (one JPEG per yaw in `views`). Returns the paths.
+
+    input_kind: 'dfisheye' for a ONE X photo (two circles in one image) or 'fisheye' for a single
+    lens (each ONE X video file is one fisheye)."""
     fw, fh = flat_size.lower().split("x")
     yaws = [t.strip() for t in views.split(",") if t.strip()]
     rotates = [t.strip().lower() for t in rotate.split(",")]
@@ -51,7 +54,7 @@ def flatten_views(src: Path, proj: str = "pannini", out_fov: float = 190.0, view
         extra = transpose.get(rot, "")
         dst = src.with_name(f"{src.stem}_{proj}_yaw{int(yaw)}.jpg")
         vf = (
-            f"v360=input=dfisheye:output={proj}:ih_fov={fov}:iv_fov={fov}"
+            f"v360=input={input_kind}:output={proj}:ih_fov={fov}:iv_fov={fov}"
             f":yaw={yaw}:pitch={pitch}:h_fov={out_fov}:v_fov={out_fov}:w={fw}:h={fh}{extra}"
         )
         _ffmpeg(vf, src, dst)
