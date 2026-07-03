@@ -38,6 +38,7 @@ except ImportError as exc:
 from recorder.camera_osc import DEFAULT_HOST, OneXCamera, OscError
 from recorder.drive_session import GPS_TRACK_COLUMNS, _fmt, _lens_siblings
 from recorder.gps_logger import DEFAULT_BAUD, DEFAULT_PORT, GpsFix, update_fix
+from recorder.status_leds import StatusLeds
 from recorder.trigger_preview import haversine_m
 
 DEFAULT_OUT_DIR = Path.home() / "360-drives"
@@ -165,6 +166,14 @@ def _sd_ok(camera: OneXCamera) -> bool:
     return free is None or free >= _SD_MIN_FREE_BYTES
 
 
+def _camera_reachable(camera: OneXCamera) -> bool:
+    try:
+        camera.get_state()
+        return True
+    except Exception:
+        return False
+
+
 def _start_segment(camera: OneXCamera, out_dir: Path) -> dict:
     stamp = _utc_now().strftime("%Y%m%dT%H%M%S")
     seg_dir = out_dir / f"drive_{stamp}"
@@ -264,13 +273,17 @@ def run(args: argparse.Namespace) -> int:
     reader = GpsReader(args.port, args.baud)
     reader.start()
     decider = RecordDecider(args.start_move_m, args.stationary_min * 60.0, args.segment_min * 60.0)
+    leds = StatusLeds(enabled=not args.no_leds)  # blå = GPS · grønn = filmer · rød = kamera ikke nåbart
 
     print(f"Autonom opptak-kontroller · start ved {args.start_move_m:.0f} m · stopp etter "
           f"{args.stationary_min:g} min i ro · bit {args.segment_min:g} min · Ctrl+C for å stoppe")
+    print("LED: blå = GPS-fix · grønn = filmer · rød = kamera ikke nåbart")
 
     seg: dict | None = None
+    camera_ok = False
     next_tick = time.monotonic()
     last_status = 0.0
+    last_cam_check = 0.0
     try:
         while not stop_event.is_set():
             now = time.monotonic()
@@ -306,6 +319,14 @@ def run(args: argparse.Namespace) -> int:
                         sats = fix.satellites if fix.satellites is not None else "?"
                         print(f"  … venter · GPS {'OK' if gps_ok else 'nei'} (sats={sats}) · "
                               f"beveget {decider.moved_since_idle:.0f}/{decider.start_move_m:.0f} m")
+
+                # Under opptak er kameraet åpenbart nåbart; ellers pinges det lett hvert 10. sek.
+                if seg is not None:
+                    camera_ok = True
+                elif now - last_cam_check >= 10.0:
+                    last_cam_check = now
+                    camera_ok = _camera_reachable(camera)
+                leds.set_drive(gps_ok, seg is not None, camera_ok)
             except Exception as exc:  # én feil (kamera nede, disk, osv.) skal ALDRI drepe 24/7-løkka
                 print(f"LØKKE-FEIL: {exc} — stopper opptaket, nullstiller og fortsetter")
                 if seg is not None:
@@ -314,7 +335,9 @@ def run(args: argparse.Namespace) -> int:
                     except Exception:
                         pass
                     seg = None
+                camera_ok = False
                 decider.force_idle()
+                leds.set_drive(False, False, camera_ok)
 
             next_tick = max(next_tick + args.interval, now)
             stop_event.wait(max(0.0, next_tick - time.monotonic()))
@@ -323,6 +346,7 @@ def run(args: argparse.Namespace) -> int:
             print("Avslutter — fullfører siste bit ...")
             _finalize_segment(camera, seg, "shutdown", not args.keep_on_camera)
         reader.stop()
+        leds.close()
     return 0
 
 
@@ -337,6 +361,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--segment-min", type=float, default=10.0, help="roter opptaket i biter på så mange minutter (standard 10)")
     parser.add_argument("--interval", type=float, default=1.0, help="sekunder mellom hver GPS-vurdering (standard 1)")
     parser.add_argument("--keep-on-camera", action="store_true", help="ikke slett videofilene fra kameraet etter nedlasting")
+    parser.add_argument("--no-leds", action="store_true", help="ikke driv status-LED-ene")
     return parser.parse_args()
 
 

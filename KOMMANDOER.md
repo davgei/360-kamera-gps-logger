@@ -194,6 +194,8 @@ python3 -m recorder.auto_record --stationary-min 3 --segment-min 10   # standard
 python3 -m recorder.auto_record --keep-on-camera    # ikke slett fra kameraet (feilsøk)
 ```
 
+**LED-er under autonomt opptak:** 🔵 blå = GPS-fix · 🟢 grønn = filmer nå · 🔴 rød = kamera ikke nåbart.
+
 ## Oppsett-laget (deploy) — git-autopull + TeamViewer ved boot
 
 Boot-tjenester (video-pipelinen): **boot** (git-pull) → **drive** (autonomt opptak) →

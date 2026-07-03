@@ -9,6 +9,10 @@ Three LEDs, BCM GPIO numbering, wired active-high (GPIO -> 330Ω -> LED+ -> LED-
 Blue (internet) is independent of green/red (camera): e.g. online but no camera -> blue + red.
 The LEDs are only INDICATORS — they never start or stop recording.
 
+The above (set_status) is the photo-path / standalone-debug meaning. The autonomous recorder
+(auto_record) drives them via set_drive() with a different meaning: blue = GPS fix, green =
+recording now, red = camera not reachable.
+
 Standalone debug modes:
 
     python3 -m recorder.status_leds            # watch readiness + battery, drive the LEDs
@@ -110,6 +114,14 @@ class StatusLeds:
         self._camera_ok = camera_ok
         self._battery_low = battery_low
         self._refresh()
+
+    def set_drive(self, gps_ok: bool, recording: bool, camera_ok: bool) -> None:
+        """LED-modus for den autonome opptaks-kontrolleren: blå = GPS-fix, grønn = filmer nå,
+        rød = kamera ikke nåbart. (Egen modus fra set_status, som foto-varianten bruker.)"""
+        self._green_mode = None  # nullstill evt. blink fra set_status-modus
+        self._set(self.blue, gps_ok)
+        self._set(self.green, recording)
+        self._set(self.red, not camera_ok)
 
     def close(self) -> None:
         for led in (self.blue, self.green, self.red):
