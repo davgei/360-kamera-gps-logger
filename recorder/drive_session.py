@@ -127,6 +127,25 @@ class GpsTrackLogger(threading.Thread):
         self.rows_written += 1
 
 
+def _lens_siblings(urls: list[str]) -> list[str]:
+    """ONE X lagrer én fil per linse (…_10_… og …_00_…), men stopCapture returnerer ofte
+    bare den ene. Legg til søsken-fila for den andre linsa. Duplikater fjernes."""
+    expanded: list[str] = []
+    for url in urls:
+        expanded.append(url)
+        if "_10_" in url:
+            expanded.append(url.replace("_10_", "_00_"))
+        elif "_00_" in url:
+            expanded.append(url.replace("_00_", "_10_"))
+    seen: set[str] = set()
+    result: list[str] = []
+    for url in expanded:
+        if url not in seen:
+            seen.add(url)
+            result.append(url)
+    return result
+
+
 def _download_videos(camera: OneXCamera, file_urls: list[str], session_dir: Path) -> list[str]:
     names: list[str] = []
     print(f"Laster ned {len(file_urls)} videofil(er) fra kameraet (kan ta tid — 5.7K er stort) ...")
@@ -191,7 +210,7 @@ def run(args: argparse.Namespace) -> int:
 
     video_stop_utc = _utc_now()
     try:
-        file_urls = camera.stop_capture()
+        file_urls = _lens_siblings(camera.stop_capture())
     except OscError as exc:
         print(f"Feil ved stopp av opptak: {exc}")
         file_urls = []
