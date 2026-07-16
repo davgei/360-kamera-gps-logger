@@ -35,9 +35,12 @@ if [[ -n "$APP_REQUIREMENTS" && -f "$REPO_DIR/$APP_REQUIREMENTS" ]]; then
     || log "pip install failed — continuing"
 fi
 
-# Restart the app so it picks up the freshly pulled code.
+# Restart the app so it picks up the freshly pulled code. --no-block is REQUIRED:
+# 360logger-app is ordered After=360logger-boot.service, so a blocking restart would
+# wait for this very (boot) service to finish, which waits for this script — a deadlock
+# that stalls the whole boot (drive/process/app never start). Queue it and return.
 log "Restarting logger app service"
-systemctl restart 360logger-app.service || true
+systemctl restart --no-block 360logger-app.service || true
 
 HEAD_SHA="$(runuser -u "$REPO_USER" -- git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 log "Done — code at $HEAD_SHA"
