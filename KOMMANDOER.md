@@ -178,8 +178,12 @@ python3 -m recorder.process_queue --keep-raw     # ikke slett rå video etter op
 python3 -m recorder.process_queue                # kjør løkka (som tjenesten gjør)
 ```
 
-Laster opp til `gdrive:360-streetview/<økt>/`. Markører i økt-mappa: `.processed` (bilder laget),
-`.done` (lastet opp + rå slettet), `.error` (feilet — hoppes over, beholdes for inspeksjon).
+Laster opp til `gdrive:360-streetview/<økt>/`: de sladdede bildene + `gps_track.csv` +
+`session.json` (sistnevnte sist — den betyr «økta er komplett på Drive»; dekningskartet i
+hentested-streetview bruker GPS-loggen til å tegne kjøreruter). Markører i økt-mappa:
+`.processed` (bilder laget), `.done` (lastet opp + rå slettet), `.meta_uploaded` (GPS-logg +
+session.json på Drive; gamle økter etterfylles automatisk), `.error` (feilet — hoppes over,
+beholdes for inspeksjon).
 
 ### Autonomt opptak (kjører 24/7) — `auto_record`
 

@@ -6,11 +6,15 @@ Kjører 24/7 (systemd-tjeneste 360logger-process). Ser i ~/360-drives/ etter FER
 eldste først, og for hver:
   1. kjør process_drive (GPS-modus, begge linser) → <økt>/blurred/
   2. last opp blurred/ til Drive (rclone move — kun de sladdede bildene)
-  3. når opplasting er BEKREFTET: slett rå video, marker økta .done
+  3. last opp gps_track.csv + session.json til samme Drive-mappe (session.json SIST —
+     PC-en/dekningskartet bruker den som «økta er komplett på Drive»-markør)
+  4. når opplasting er BEKREFTET: slett rå video, marker økta .done
 
 Ledig tid (kveld/helg) drenerer køen automatisk. Rå video slettes ALDRI før opplasting er
 bekreftet. Markører i økt-mappa: .processed (bilder laget), .done (lastet opp + rå slettet),
-.error (prosessering ga 0 bilder / feilet — hoppes over, men beholdes for inspeksjon).
+.meta_uploaded (gps_track.csv + session.json ligger på Drive), .error (prosessering ga
+0 bilder / feilet — hoppes over, men beholdes for inspeksjon). Økter som ble lastet opp
+FØR metadata-opplastingen fantes, etterfylles automatisk (.done uten .meta_uploaded).
 
     python3 -m recorder.process_queue                 # kjør løkka (som tjenesten gjør)
     python3 -m recorder.process_queue --once          # ta én runde og avslutt (test)
@@ -69,6 +73,41 @@ def _upload_blurred(blurred: Path, remote: str, remote_path: str, drive_name: st
         return False  # rclone mangler / feilet / offline → behandles som «prøv igjen» (rå beholdes)
 
 
+def _upload_metadata(drive: Path, remote: str, remote_path: str) -> bool:
+    """Last opp gps_track.csv + session.json til øktas Drive-mappe. session.json lastes opp
+    SIST fordi PC-en tolker den som «alt for denne økta ligger på Drive»."""
+    target = f"{remote}:{remote_path}/{drive.name}"
+    for name in ("gps_track.csv", "session.json"):
+        source = drive / name
+        if not source.is_file():
+            continue
+        try:
+            subprocess.run(["rclone", "copyto", str(source), f"{target}/{name}", *RCLONE_FLAGS],
+                           check=True, start_new_session=True)
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            return False
+    return True
+
+
+def _backfill_metadata(drives_dir: Path, remote: str, remote_path: str) -> None:
+    """Etterfyll gps_track.csv + session.json for økter som alt er lastet opp (.done) men
+    mangler .meta_uploaded — dvs. økter fra før metadata-opplastingen fantes, eller der den
+    feilet. Stopper ved første feil (offline) og prøver igjen neste runde."""
+    if not drives_dir.exists():
+        return
+    pending = sorted(
+        d for d in drives_dir.iterdir()
+        if d.is_dir() and (d / ".done").exists() and not (d / ".meta_uploaded").exists()
+        and (d / "session.json").is_file()
+    )
+    for drive in pending:
+        if not _upload_metadata(drive, remote, remote_path):
+            print(f"[{drive.name}] etterfylling av GPS-logg feilet (offline?) — prøver igjen senere")
+            return
+        (drive / ".meta_uploaded").touch()
+        print(f"[{drive.name}] GPS-logg + session.json etterfylt til Drive")
+
+
 def _delete_raw(drive: Path) -> int:
     removed = 0
     for video in drive.glob("VID_*.mp4"):
@@ -118,6 +157,14 @@ def _handle_drive(drive: Path, args: argparse.Namespace) -> str:
         blurred.rmdir()
     except OSError:
         pass
+
+    # Bildene er bekreftet oppe — feiler metadata-opplastingen nå, markeres økta likevel
+    # .done (rå kan trygt slettes) og GPS-loggen etterfylles av _backfill_metadata senere.
+    if _upload_metadata(drive, args.remote, args.remote_path):
+        (drive / ".meta_uploaded").touch()
+    else:
+        print(f"[{drive.name}] GPS-logg-opplasting feilet — etterfylles ved en senere runde")
+
     if not args.keep_raw:
         removed = _delete_raw(drive)
         print(f"[{drive.name}] slettet {removed} rå videofil(er)")
@@ -178,6 +225,8 @@ def main() -> int:
                     break  # nettet nede — vent til neste runde i stedet for å spinne
         elif not args.once:
             print(f"(ingen nye økter — venter {args.scan_interval:.0f}s)")
+        if not args.no_upload:
+            _backfill_metadata(args.drives_dir, args.remote, args.remote_path)
         if args.once:
             break
         time.sleep(args.scan_interval)
